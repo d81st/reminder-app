@@ -131,7 +131,7 @@ class Scheduler {
             String title = e.rule.lead > 0
                     ? e.rule.name + " · в " + fmt(e.minute) + " (через " + e.rule.lead + " мин)"
                     : e.rule.name + " · " + fmt(e.minute);
-            int id = (int) ((e.at / MIN) % 1000000L) * 10 + (e.index % 10);
+            int id = (int) ((e.at / MIN) % 1000000L) * 10 + (int) (e.rule.id % 10);
             post(c, id, title, e.rule.text);
         }
         Store.setLastFired(c, Math.max(last, to));
@@ -155,7 +155,7 @@ class Scheduler {
         Notification.Builder b = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(c, CHANNEL)
                 : new Notification.Builder(c);
-        b.setSmallIcon(android.R.drawable.ic_popup_reminder)
+        b.setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setStyle(new Notification.BigTextStyle().bigText(text))

@@ -8,6 +8,7 @@ import java.util.List;
 
 /** Одно расписание: окно времени, интервал, «за N минут» и текст. Времена хранятся в минутах от полуночи. */
 class Rule {
+    long id = 0; // 0 = ещё не сохранено в базе
     String name;
     String text;
     boolean enabled = true;
