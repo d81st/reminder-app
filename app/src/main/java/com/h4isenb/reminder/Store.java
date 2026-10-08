@@ -3,20 +3,28 @@ package com.h4isenb.reminder;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 
 import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/** Напоминания хранятся в SQLite, служебные значения (время последнего срабатывания) в SharedPreferences. */
+/** Напоминания и журнал лежат в SQLite, служебные значения (тема, время последнего срабатывания) в SharedPreferences. */
 class Store {
     private static final String PREFS = "reminder";
     private static Db helper;
+
+    static class LogItem {
+        long at;
+        String title;
+        String text;
+    }
 
     private static SharedPreferences prefs(Context c) {
         return c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
@@ -29,14 +37,31 @@ class Store {
 
     static List<Rule> defaults() {
         List<Rule> list = new ArrayList<>();
-        list.add(new Rule("Каждый час (ровно :00)", 9 * 60, 17 * 60, 60, false,
-                "Запиши текст в тетрадь ручкой и отправь сообщение в Telegram."));
-        list.add(new Rule("Каждые 30 минут (без целых часов)", 9 * 60, 17 * 60, 30, true,
-                "Отправь сообщение в Telegram."));
+        Rule hour = new Rule("Каждый час (ровно :00)", 9 * 60, 17 * 60, 60, false,
+                "Запиши текст в тетрадь ручкой и отправь сообщение в Telegram.");
+        hour.color = 0;
+        Rule half = new Rule("Каждые 30 минут (без целых часов)", 9 * 60, 17 * 60, 30, true,
+                "Отправь сообщение в Telegram.");
+        half.color = 1;
+        list.add(hour);
+        list.add(half);
         return list;
     }
 
-    /** При первом запуске переносит настройки из старой версии (JSON) или создаёт два расписания по умолчанию. */
+    private static Rule ruleFromJson(JSONObject o) {
+        Rule r = new Rule(
+                o.optString("name", "Напоминание"),
+                o.optInt("start", 9 * 60),
+                o.optInt("end", 17 * 60),
+                o.optInt("interval", 60),
+                o.optBoolean("skipOverlap", false),
+                o.optString("text", ""));
+        r.enabled = o.optBoolean("enabled", true);
+        r.lead = o.optInt("lead", 0);
+        return r;
+    }
+
+    /** При первом запуске переносит настройки самой старой версии (JSON) или создаёт два напоминания по умолчанию. */
     private static void seedIfNeeded(Context c) {
         SharedPreferences p = prefs(c);
         if (p.getBoolean("seeded", false)) return;
@@ -45,7 +70,7 @@ class Store {
         if (s != null) {
             try {
                 JSONArray a = new JSONArray(s);
-                for (int i = 0; i < a.length(); i++) seed.add(Rule.fromJson(a.getJSONObject(i)));
+                for (int i = 0; i < a.length(); i++) seed.add(ruleFromJson(a.getJSONObject(i)));
             } catch (Exception ignored) {
                 seed.clear();
             }
@@ -72,6 +97,7 @@ class Store {
                 r.id = cur.getLong(cur.getColumnIndexOrThrow("id"));
                 r.enabled = cur.getInt(cur.getColumnIndexOrThrow("enabled")) == 1;
                 r.lead = cur.getInt(cur.getColumnIndexOrThrow("lead_min"));
+                r.color = cur.getInt(cur.getColumnIndexOrThrow("color"));
                 list.add(r);
             }
         } finally {
@@ -98,6 +124,7 @@ class Store {
                 v.put("interval_min", r.interval);
                 v.put("lead_min", r.lead);
                 v.put("position", i);
+                v.put("color", r.color);
                 boolean updated = r.id > 0
                         && db.update("rules", v, "id=?", new String[]{String.valueOf(r.id)}) > 0;
                 if (!updated) r.id = db.insert("rules", null, v);
@@ -118,6 +145,63 @@ class Store {
         } finally {
             db.endTransaction();
         }
+    }
+
+    // ---------- журнал ----------
+
+    static synchronized void addLog(Context c, long at, String title, String text) {
+        try {
+            SQLiteDatabase db = helper(c).getWritableDatabase();
+            ContentValues v = new ContentValues();
+            v.put("at", at);
+            v.put("title", title);
+            v.put("text", text == null ? "" : text);
+            db.insert("log", null, v);
+            db.execSQL("DELETE FROM log WHERE id NOT IN (SELECT id FROM log ORDER BY id DESC LIMIT 200)");
+        } catch (Exception ignored) {
+            // журнал не должен ломать показ уведомления
+        }
+    }
+
+    static synchronized List<LogItem> loadLog(Context c, int limit) {
+        List<LogItem> list = new ArrayList<>();
+        try {
+            SQLiteDatabase db = helper(c).getReadableDatabase();
+            Cursor cur = db.query("log", null, null, null, null, null, "id DESC", String.valueOf(limit));
+            try {
+                while (cur.moveToNext()) {
+                    LogItem it = new LogItem();
+                    it.at = cur.getLong(cur.getColumnIndexOrThrow("at"));
+                    it.title = cur.getString(cur.getColumnIndexOrThrow("title"));
+                    it.text = cur.getString(cur.getColumnIndexOrThrow("text"));
+                    list.add(it);
+                }
+            } finally {
+                cur.close();
+            }
+        } catch (Exception ignored) {
+        }
+        return list;
+    }
+
+    static synchronized void clearLog(Context c) {
+        try {
+            helper(c).getWritableDatabase().delete("log", null, null);
+        } catch (Exception ignored) {
+        }
+    }
+
+    // ---------- тема и служебное ----------
+
+    static boolean isDark(Context c) {
+        int t = prefs(c).getInt("theme", -1);
+        if (t >= 0) return t == 1;
+        int night = c.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        return night == Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    static void setDark(Context c, boolean dark) {
+        prefs(c).edit().putInt("theme", dark ? 1 : 0).apply();
     }
 
     static long getLastFired(Context c) {
