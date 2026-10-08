@@ -7,13 +7,15 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.media.AudioAttributes;
+import android.media.RingtoneManager;
+import android.net.Uri;
 import android.os.Build;
 
 import java.util.List;
 
 /** Планирование будильников. Один будильник всегда стоит на ближайшее уведомление. */
 class Scheduler {
-    static final String CHANNEL = "reminders";
     static final String ACTION = "com.h4isenb.reminder.ALARM";
     private static final long MIN = TimeMath.MIN;
 
@@ -81,12 +83,46 @@ class Scheduler {
         }
     }
 
+    /** Выбранный звук; null = без звука. */
+    static Uri soundUri(Context c) {
+        String s = Store.getSound(c);
+        if ("silent".equals(s)) return null;
+        Uri def = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+        if (s == null || s.isEmpty() || "default".equals(s)) return def;
+        try {
+            return Uri.parse(s);
+        } catch (Exception e) {
+            return def;
+        }
+    }
+
+    /** Звук канала нельзя поменять после создания, поэтому у каждого звука свой канал. */
+    static String channelId(Context c) {
+        return "reminders_" + Integer.toHexString(String.valueOf(Store.getSound(c)).hashCode());
+    }
+
     static void ensureChannel(Context c) {
-        if (Build.VERSION.SDK_INT >= 26) {
-            NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
-            NotificationChannel ch = new NotificationChannel(CHANNEL, "Напоминания", NotificationManager.IMPORTANCE_HIGH);
+        if (Build.VERSION.SDK_INT < 26) return;
+        NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
+        String id = channelId(c);
+        if (nm.getNotificationChannel(id) == null) {
+            NotificationChannel ch = new NotificationChannel(id, "Напоминания", NotificationManager.IMPORTANCE_HIGH);
             ch.enableVibration(true);
+            Uri s = soundUri(c);
+            if (s == null) {
+                ch.setSound(null, null);
+            } else {
+                ch.setSound(s, new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build());
+            }
             nm.createNotificationChannel(ch);
+        }
+        // каналы со старыми звуками убираем, чтобы не копились в настройках телефона
+        for (NotificationChannel old : nm.getNotificationChannels()) {
+            String oid = old.getId();
+            if (oid.startsWith("reminders") && !oid.equals(id)) nm.deleteNotificationChannel(oid);
         }
     }
 
@@ -97,7 +133,7 @@ class Scheduler {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         Notification.Builder b = Build.VERSION.SDK_INT >= 26
-                ? new Notification.Builder(c, CHANNEL)
+                ? new Notification.Builder(c, channelId(c))
                 : new Notification.Builder(c);
         b.setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle(title)
@@ -108,7 +144,9 @@ class Scheduler {
                 .setAutoCancel(true);
         if (Build.VERSION.SDK_INT < 26) {
             b.setPriority(Notification.PRIORITY_HIGH);
-            b.setDefaults(Notification.DEFAULT_ALL);
+            b.setDefaults(Notification.DEFAULT_VIBRATE | Notification.DEFAULT_LIGHTS);
+            Uri s = soundUri(c);
+            if (s != null) b.setSound(s);
         }
         nm.notify(id, b.build());
     }

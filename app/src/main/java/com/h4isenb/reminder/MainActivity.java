@@ -10,6 +10,8 @@ import android.graphics.Color;
 import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.media.Ringtone;
+import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -27,6 +29,7 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Switch;
@@ -53,6 +56,7 @@ public class MainActivity extends Activity {
     private static final int REQ_NOTIF_SET = 2;
     private static final int REQ_EXACT = 3;
     private static final int REQ_BATT = 4;
+    private static final int REQ_SOUND = 5;
     private static final int MAX_RULES = 30;
     private static final int MAX_CHIPS = 24;
 
@@ -87,7 +91,10 @@ public class MainActivity extends Activity {
 
     private LinearLayout page, bottom, cards, logBox;
     private ScrollView scrollRem, scrollLog, scrollSet;
-    private TextView status, warn, emptyHint, themeBtn;
+    private TextView status, warn, emptyHint, themeBtn, soundLabel;
+    private ImageView fab;
+    private boolean keyboardOpen = false;
+    private Ringtone preview;
     private TextView[] tabs = new TextView[3];
     private PR pNotif, pBatt, pExact;
     private int currentTab = 0;
@@ -152,6 +159,23 @@ public class MainActivity extends Activity {
         frame.addView(scrollLog, new FrameLayout.LayoutParams(MATCH, MATCH));
         frame.addView(scrollSet, new FrameLayout.LayoutParams(MATCH, MATCH));
 
+        // Плавающая кнопка «+»: лежит поверх списка, плюс нарисован вектором и стоит ровно по центру
+        fab = new ImageView(this);
+        fab.setImageResource(R.drawable.ic_add);
+        fab.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        fab.setPadding(dp(16), dp(16), dp(16), dp(16));
+        GradientDrawable fabBg = new GradientDrawable();
+        fabBg.setShape(GradientDrawable.OVAL);
+        fabBg.setColor(INDIGO);
+        fab.setBackground(fabBg);
+        fab.setElevation(dp(8));
+        fab.setContentDescription("Добавить напоминание");
+        fab.setOnClickListener(x -> addNew());
+        FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(dp(56), dp(56), Gravity.BOTTOM | Gravity.END);
+        flp.setMarginEnd(dp(18));
+        flp.bottomMargin = dp(18);
+        frame.addView(fab, flp);
+
         buildRemindersPage();
         buildLogPage();
         buildSettingsPage();
@@ -163,7 +187,9 @@ public class MainActivity extends Activity {
             page.getWindowVisibleDisplayFrame(r);
             int h = page.getRootView().getHeight();
             boolean open = h > 0 && (h - r.bottom) > h * 0.15f;
+            keyboardOpen = open;
             bottom.setVisibility(open ? View.GONE : View.VISIBLE);
+            updateFab();
         });
 
         ready = true;
@@ -193,6 +219,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
+        stopPreview();
         handler.removeCallbacks(saveTask);
         if (ready && dirty) persist();
     }
@@ -306,6 +333,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_SOUND) {
+            handleSound(resultCode, data);
+            return;
+        }
         afterAsk();
     }
 
@@ -391,19 +422,6 @@ public class MainActivity extends Activity {
         tabs[0] = tabView("Напоминания", 0);
         bar.addView(tabs[0], new LinearLayout.LayoutParams(0, WRAP, 1f));
 
-        FrameLayout addHolder = new FrameLayout(this);
-        TextView plus = text("+", 30, Color.WHITE);
-        plus.setGravity(Gravity.CENTER);
-        GradientDrawable oval = new GradientDrawable();
-        oval.setShape(GradientDrawable.OVAL);
-        oval.setColor(INDIGO);
-        plus.setBackground(oval);
-        plus.setOnClickListener(x -> addNew());
-        FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(dp(48), dp(48));
-        plp.gravity = Gravity.CENTER;
-        addHolder.addView(plus, plp);
-        bar.addView(addHolder, new LinearLayout.LayoutParams(0, dp(52), 0.8f));
-
         tabs[1] = tabView("Журнал", 1);
         bar.addView(tabs[1], new LinearLayout.LayoutParams(0, WRAP, 1f));
         tabs[2] = tabView("Настройки", 2);
@@ -434,6 +452,12 @@ public class MainActivity extends Activity {
         }
         if (i == 1) renderLog();
         if (i == 2) refreshPermRows();
+        updateFab();
+    }
+
+    /** Кнопка «+» видна только на странице напоминаний и пока не открыта клавиатура. */
+    private void updateFab() {
+        if (fab != null) fab.setVisibility(currentTab == 0 && !keyboardOpen ? View.VISIBLE : View.GONE);
     }
 
     private void toggleTheme() {
@@ -449,7 +473,8 @@ public class MainActivity extends Activity {
 
     private void buildRemindersPage() {
         LinearLayout b = bodyOf(scrollRem);
-        emptyHint = text("Пока нет напоминаний. Нажмите «+» внизу, чтобы создать.", 15, cMuted);
+        b.setPadding(dp(16), dp(6), dp(16), dp(96)); // запас снизу, чтобы кнопка «+» не закрывала последнюю карточку
+        emptyHint = text("Пока нет напоминаний. Нажмите «+», чтобы создать.", 15, cMuted);
         emptyHint.setGravity(Gravity.CENTER);
         emptyHint.setPadding(0, dp(40), 0, dp(8));
         b.addView(emptyHint);
@@ -889,6 +914,22 @@ public class MainActivity extends Activity {
         themeRow.addView(themeSw);
         look.addView(themeRow);
 
+        LinearLayout snd = section(b, "Звук");
+        LinearLayout sndRow = hbox();
+        sndRow.setPadding(0, dp(8), 0, 0);
+        LinearLayout sndLeft = vbox();
+        sndLeft.addView(text("Звук уведомлений", 15, cInk));
+        soundLabel = text(soundTitle(), 13, cMuted);
+        sndLeft.addView(soundLabel);
+        sndRow.addView(sndLeft, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        Button pick = button("Выбрать", false);
+        pick.setOnClickListener(x -> pickSound());
+        sndRow.addView(pick);
+        snd.addView(sndRow);
+        TextView sndHint = text("Список мелодий вашего телефона. После выбора звук один раз проигрывается.", 12, cMuted);
+        sndHint.setPadding(0, dp(6), 0, 0);
+        snd.addView(sndHint);
+
         LinearLayout perms = section(b, "Разрешения");
         pNotif = permRow(perms, "Уведомления", "Без этого напоминания не появятся.", x -> {
             fromUser = true;
@@ -973,6 +1014,72 @@ public class MainActivity extends Activity {
         setPerm(pBatt, Perms.batteryOk(this));
         pExact.row.setVisibility(Build.VERSION.SDK_INT >= 31 ? View.VISIBLE : View.GONE);
         setPerm(pExact, Perms.exactAlarmOk(this));
+    }
+
+    // ---------- звук ----------
+
+    private String soundTitle() {
+        String s = Store.getSound(this);
+        if ("silent".equals(s)) return "Без звука";
+        if (s == null || s.isEmpty() || "default".equals(s)) return "По умолчанию";
+        try {
+            Ringtone r = RingtoneManager.getRingtone(this, Uri.parse(s));
+            if (r != null) return r.getTitle(this);
+        } catch (Exception ignored) {
+        }
+        return "Выбранный звук";
+    }
+
+    private void pickSound() {
+        Intent i = new Intent(RingtoneManager.ACTION_RINGTONE_PICKER);
+        i.putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_NOTIFICATION);
+        i.putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Звук уведомлений");
+        i.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true);
+        i.putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true);
+        i.putExtra(RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI,
+                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION));
+        i.putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Scheduler.soundUri(this));
+        try {
+            startActivityForResult(i, REQ_SOUND);
+        } catch (Exception e) {
+            Toast.makeText(this, "Не удалось открыть выбор звука", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void handleSound(int resultCode, Intent data) {
+        if (resultCode != RESULT_OK || data == null) return;
+        Uri picked = data.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI);
+        String value;
+        if (picked == null) value = "silent";
+        else if (picked.equals(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))) value = "default";
+        else value = picked.toString();
+        Store.setSound(this, value);
+        Scheduler.ensureChannel(this);
+        soundLabel.setText(soundTitle());
+        playPreview(Scheduler.soundUri(this));
+    }
+
+    private void playPreview(Uri u) {
+        stopPreview();
+        if (u == null) return;
+        try {
+            preview = RingtoneManager.getRingtone(this, u);
+            if (preview != null) {
+                preview.play();
+                handler.postDelayed(this::stopPreview, 3000);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void stopPreview() {
+        if (preview != null) {
+            try {
+                preview.stop();
+            } catch (Exception ignored) {
+            }
+            preview = null;
+        }
     }
 
     private void sendTest() {

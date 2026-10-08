@@ -204,6 +204,15 @@ class Store {
         prefs(c).edit().putInt("theme", dark ? 1 : 0).apply();
     }
 
+    /** Звук уведомлений: "default" (системный по умолчанию), "silent" (без звука) или адрес выбранной мелодии. */
+    static String getSound(Context c) {
+        return prefs(c).getString("sound", "default");
+    }
+
+    static void setSound(Context c, String value) {
+        prefs(c).edit().putString("sound", value).apply();
+    }
+
     static long getLastFired(Context c) {
         SharedPreferences p = prefs(c);
         long v = p.getLong("lastFired", -1L);
