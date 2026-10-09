@@ -98,6 +98,8 @@ class Store {
                 r.enabled = cur.getInt(cur.getColumnIndexOrThrow("enabled")) == 1;
                 r.lead = cur.getInt(cur.getColumnIndexOrThrow("lead_min"));
                 r.color = cur.getInt(cur.getColumnIndexOrThrow("color"));
+                r.repeatEvery = cur.getInt(cur.getColumnIndexOrThrow("repeat_every"));
+                r.repeatCount = cur.getInt(cur.getColumnIndexOrThrow("repeat_count"));
                 list.add(r);
             }
         } finally {
@@ -125,6 +127,8 @@ class Store {
                 v.put("lead_min", r.lead);
                 v.put("position", i);
                 v.put("color", r.color);
+                v.put("repeat_every", r.repeatEvery);
+                v.put("repeat_count", r.repeatCount);
                 boolean updated = r.id > 0
                         && db.update("rules", v, "id=?", new String[]{String.valueOf(r.id)}) > 0;
                 if (!updated) r.id = db.insert("rules", null, v);
@@ -145,6 +149,40 @@ class Store {
         } finally {
             db.endTransaction();
         }
+    }
+
+    // ---------- «Готово»: остановка повторов ----------
+
+    /** Помечает основное уведомление как принятое: его повторы больше не придут. */
+    static synchronized void markDone(Context c, long ruleId, long baseAt) {
+        if (ruleId <= 0) return;
+        try {
+            SQLiteDatabase db = helper(c).getWritableDatabase();
+            ContentValues v = new ContentValues();
+            v.put("ev_key", ruleId + ":" + baseAt);
+            v.put("at", System.currentTimeMillis());
+            db.insertWithOnConflict("done", null, v, SQLiteDatabase.CONFLICT_REPLACE);
+            long old = System.currentTimeMillis() - 3L * 24 * 3600 * 1000;
+            db.delete("done", "at < ?", new String[]{String.valueOf(old)});
+        } catch (Exception ignored) {
+        }
+    }
+
+    static synchronized Set<String> doneKeys(Context c) {
+        Set<String> keys = new HashSet<>();
+        try {
+            SQLiteDatabase db = helper(c).getReadableDatabase();
+            long since = System.currentTimeMillis() - 3L * 24 * 3600 * 1000;
+            Cursor cur = db.query("done", new String[]{"ev_key"}, "at >= ?",
+                    new String[]{String.valueOf(since)}, null, null, null);
+            try {
+                while (cur.moveToNext()) keys.add(cur.getString(0));
+            } finally {
+                cur.close();
+            }
+        } catch (Exception ignored) {
+        }
+        return keys;
     }
 
     // ---------- журнал ----------

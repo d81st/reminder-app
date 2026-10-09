@@ -71,9 +71,9 @@ public class MainActivity extends Activity {
         Rule r;
         LinearLayout card, detail, colors;
         View dot;
-        TextView title, sub, chevron, leadNote;
+        TextView title, sub, chevron, leadNote, repNote;
         Switch sw;
-        EditText eName, eInterval, eLead, eText;
+        EditText eName, eInterval, eLead, eText, eRepEvery, eRepCount;
         Button bStart, bEnd;
         CheckBox cSkip;
         FlowLayout chips;
@@ -134,6 +134,7 @@ public class MainActivity extends Activity {
         dark = Store.isDark(this);
         setTheme(dark ? R.style.AppThemeDark : R.style.AppTheme);
         super.onCreate(savedInstanceState);
+        handleDoneIntent(getIntent());
         initPalette();
         rules = Store.load(this);
 
@@ -203,6 +204,26 @@ public class MainActivity extends Activity {
 
         // При первом открытии (и при каждом новом запуске) сразу просим недостающие разрешения
         if (savedInstanceState == null) page.post(this::startPermissionChain);
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleDoneIntent(intent);
+    }
+
+    /** Тап по уведомлению с повторами означает «увидел»: остальные повторы отменяются. */
+    private void handleDoneIntent(Intent intent) {
+        if (intent == null) return;
+        long rule = intent.getLongExtra("done_rule", 0L);
+        long base = intent.getLongExtra("done_base", 0L);
+        if (rule > 0 && base > 0) {
+            Store.markDone(this, rule, base);
+            Scheduler.scheduleNext(this);
+            intent.removeExtra("done_rule");
+            intent.removeExtra("done_base");
+        }
     }
 
     @Override
@@ -590,6 +611,30 @@ public class MainActivity extends Activity {
         numRow.addView(colB, cb);
         d.addView(numRow);
 
+        // Повторы: «каждые M минут» и «сколько раз»
+        LinearLayout repRow = hbox();
+        repRow.setGravity(Gravity.TOP);
+        repRow.setPadding(0, dp(12), 0, 0);
+        LinearLayout colC = vbox();
+        colC.addView(label("Повторять каждые, мин"));
+        v.eRepEvery = numberField(String.valueOf(r.repeatEvery), "5", 1, 120);
+        colC.addView(v.eRepEvery, new LinearLayout.LayoutParams(MATCH, WRAP));
+        LinearLayout.LayoutParams cc = new LinearLayout.LayoutParams(0, WRAP, 1f);
+        cc.rightMargin = dp(6);
+        repRow.addView(colC, cc);
+        LinearLayout colD = vbox();
+        colD.addView(label("Сколько раз (0 = выкл.)"));
+        v.eRepCount = numberField(String.valueOf(r.repeatCount), "0", 0, 20);
+        colD.addView(v.eRepCount, new LinearLayout.LayoutParams(MATCH, WRAP));
+        LinearLayout.LayoutParams cd = new LinearLayout.LayoutParams(0, WRAP, 1f);
+        cd.leftMargin = dp(6);
+        repRow.addView(colD, cd);
+        d.addView(repRow);
+
+        v.repNote = text("", 12, cMuted);
+        v.repNote.setPadding(0, dp(6), 0, 0);
+        d.addView(v.repNote);
+
         v.cSkip = new CheckBox(this);
         v.cSkip.setText("Пропускать время, когда срабатывает другое напоминание");
         v.cSkip.setTextSize(13);
@@ -714,6 +759,8 @@ public class MainActivity extends Activity {
             r.skipOverlap = v.cSkip.isChecked();
             r.interval = clamp(parse(v.eInterval, r.interval), 1, 720);
             r.lead = clamp(parse(v.eLead, r.lead), 0, 180);
+            r.repeatEvery = clamp(parse(v.eRepEvery, r.repeatEvery), 1, 120);
+            r.repeatCount = clamp(parse(v.eRepCount, r.repeatCount), 0, 20);
             r.text = v.eText.getText().toString();
             r.color = clamp(r.color, 0, ACCENTS.length - 1);
         }
@@ -786,6 +833,7 @@ public class MainActivity extends Activity {
                 if (t.size() > MAX_CHIPS) v.chips.addView(chip("ещё " + (t.size() - MAX_CHIPS), cTint, cMuted));
             }
             v.leadNote.setText(r.lead > 0 ? "Придёт за " + r.lead + " мин до каждого времени" : "");
+            v.repNote.setText(repeatNote(r));
         }
         updateStatus();
     }
@@ -795,9 +843,33 @@ public class MainActivity extends Activity {
         return -1;
     }
 
+    /** Пояснение под полями повторов: сколько повторов будет и как их остановить. */
+    private static String repeatNote(Rule r) {
+        if (r.repeatCount <= 0) return "Повторы выключены. Поставьте число больше 0, чтобы уведомление повторялось.";
+        int eff = r.effectiveRepeats();
+        if (eff == 0) {
+            return "Повторы не помещаются: они должны закончиться раньше следующего времени (интервал "
+                    + r.interval + " мин). Уменьшите шаг повтора.";
+        }
+        String s = "После каждого уведомления ещё " + eff + " " + timesWord(eff) + ", каждые " + r.repeatEvery
+                + " мин; последнее через " + (eff * r.repeatEvery) + " мин.";
+        if (eff < r.repeatCount) s += " Остальные не помещаются до следующего времени.";
+        return s + "\nЧтобы остановить повторы, нажмите «Готово» в уведомлении или смахните его.";
+    }
+
+    private static String timesWord(int n) {
+        int a = n % 100;
+        int b = n % 10;
+        if (a >= 11 && a <= 14) return "раз";
+        if (b == 1) return "раз";
+        if (b >= 2 && b <= 4) return "раза";
+        return "раз";
+    }
+
     private String subtitle(Rule r, List<Integer> t, int nowMin) {
         if (t.isEmpty()) return "Нет времён: проверьте начало и конец";
-        String range = TimeMath.fmt(r.start) + "–" + TimeMath.fmt(r.end) + " · каждые " + r.interval + " мин";
+        String range = TimeMath.fmt(r.start) + "–" + TimeMath.fmt(r.end) + " · каждые " + r.interval + " мин"
+                + (r.effectiveRepeats() > 0 ? " · ↻" + r.effectiveRepeats() : "");
         if (!r.enabled) return range + " · выключено";
         int next = nextTime(t, r.lead, nowMin);
         return range + (next >= 0 ? " · след. " + TimeMath.fmt(next) : " · завтра " + TimeMath.fmt(t.get(0)));
@@ -818,7 +890,7 @@ public class MainActivity extends Activity {
         long now = System.currentTimeMillis();
         long best = -1;
         for (TimeMath.Event e : TimeMath.events(rules, now, now + 36L * 60L * TimeMath.MIN)) {
-            if (best < 0 || e.at < best) best = e.at;
+            if (e.repeat == 0 && (best < 0 || e.at < best)) best = e.at; // в «Следующем» только основные
         }
         if (best > 0) {
             status.setText("Следующее: "
