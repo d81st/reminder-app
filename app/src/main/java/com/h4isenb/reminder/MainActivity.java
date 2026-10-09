@@ -42,6 +42,7 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.TimeZone;
 
 public class MainActivity extends Activity {
 
@@ -74,7 +75,7 @@ public class MainActivity extends Activity {
         TextView title, sub, chevron, leadNote, repNote;
         Switch sw;
         EditText eName, eInterval, eLead, eText, eRepEvery, eRepCount;
-        Button bStart, bEnd;
+        Button bStart, bEnd, bBefore, bAfter;
         CheckBox cSkip;
         FlowLayout chips;
         boolean expanded;
@@ -611,7 +612,7 @@ public class MainActivity extends Activity {
         numRow.addView(colB, cb);
         d.addView(numRow);
 
-        // Повторы: «каждые M минут» и «сколько раз»
+        // Повторы: «каждые M минут», «сколько раз ещё» и когда повторять (до времени / после времени)
         LinearLayout repRow = hbox();
         repRow.setGravity(Gravity.TOP);
         repRow.setPadding(0, dp(12), 0, 0);
@@ -623,13 +624,33 @@ public class MainActivity extends Activity {
         cc.rightMargin = dp(6);
         repRow.addView(colC, cc);
         LinearLayout colD = vbox();
-        colD.addView(label("Сколько раз (0 = выкл.)"));
+        colD.addView(label("Сколько раз ещё (0 = выкл.)"));
         v.eRepCount = numberField(String.valueOf(r.repeatCount), "0", 0, 20);
         colD.addView(v.eRepCount, new LinearLayout.LayoutParams(MATCH, WRAP));
         LinearLayout.LayoutParams cd = new LinearLayout.LayoutParams(0, WRAP, 1f);
         cd.leftMargin = dp(6);
         repRow.addView(colD, cd);
         d.addView(repRow);
+
+        d.addView(label("Когда повторять"), labelLp(10));
+        LinearLayout seg = hbox();
+        v.bBefore = button("До времени", false);
+        v.bBefore.setOnClickListener(x -> {
+            v.r.repeatMode = Rule.REPEAT_BEFORE;
+            refreshPreview();
+        });
+        LinearLayout.LayoutParams sb1 = new LinearLayout.LayoutParams(0, WRAP, 1f);
+        sb1.rightMargin = dp(6);
+        seg.addView(v.bBefore, sb1);
+        v.bAfter = button("После времени", false);
+        v.bAfter.setOnClickListener(x -> {
+            v.r.repeatMode = Rule.REPEAT_AFTER;
+            refreshPreview();
+        });
+        LinearLayout.LayoutParams sb2 = new LinearLayout.LayoutParams(0, WRAP, 1f);
+        sb2.leftMargin = dp(6);
+        seg.addView(v.bAfter, sb2);
+        d.addView(seg);
 
         v.repNote = text("", 12, cMuted);
         v.repNote.setPadding(0, dp(6), 0, 0);
@@ -761,6 +782,7 @@ public class MainActivity extends Activity {
             r.lead = clamp(parse(v.eLead, r.lead), 0, 180);
             r.repeatEvery = clamp(parse(v.eRepEvery, r.repeatEvery), 1, 120);
             r.repeatCount = clamp(parse(v.eRepCount, r.repeatCount), 0, 20);
+            r.repeatMode = r.repeatMode == Rule.REPEAT_AFTER ? Rule.REPEAT_AFTER : Rule.REPEAT_BEFORE;
             r.text = v.eText.getText().toString();
             r.color = clamp(r.color, 0, ACCENTS.length - 1);
         }
@@ -780,8 +802,9 @@ public class MainActivity extends Activity {
         try {
             collect();
             Store.save(this, rules);
-            // правка расписания не должна «догонять» уже прошедшие времена
-            Store.setLastFired(this, Math.max(Store.getLastFired(this), System.currentTimeMillis()));
+            // правка расписания не должна «догонять» уже прошедшие времена. Запас в 3 секунды нужен, чтобы
+            // уведомление, время которого наступило прямо сейчас, но будильник ещё не сработал, не потерялось.
+            Store.setLastFired(this, Math.max(Store.getLastFired(this), System.currentTimeMillis() - 3000L));
             Scheduler.ensureChannel(this);
             Scheduler.scheduleNext(this);
             dirty = false;
@@ -832,10 +855,22 @@ public class MainActivity extends Activity {
                 }
                 if (t.size() > MAX_CHIPS) v.chips.addView(chip("ещё " + (t.size() - MAX_CHIPS), cTint, cMuted));
             }
-            v.leadNote.setText(r.lead > 0 ? "Придёт за " + r.lead + " мин до каждого времени" : "");
-            v.repNote.setText(repeatNote(r));
+            if (r.lead <= 0) v.leadNote.setText("");
+            else if (r.effectiveRepeats() > 0) {
+                v.leadNote.setText("Основное уведомление за " + r.lead + " мин до времени, серия считается от него");
+            } else {
+                v.leadNote.setText("Придёт за " + r.lead + " мин до каждого времени");
+            }
+            v.repNote.setText(repeatNote(r, t));
+            paintSeg(v.bBefore, r.repeatMode == Rule.REPEAT_BEFORE);
+            paintSeg(v.bAfter, r.repeatMode == Rule.REPEAT_AFTER);
         }
         updateStatus();
+    }
+
+    private void paintSeg(Button b, boolean on) {
+        b.setBackground(rounded(on ? INDIGO : cTint, 12, 0));
+        b.setTextColor(on ? Color.WHITE : cTintText);
     }
 
     private static int nextTime(List<Integer> t, int lead, int nowMin) {
@@ -843,28 +878,25 @@ public class MainActivity extends Activity {
         return -1;
     }
 
-    /** Пояснение под полями повторов: сколько повторов будет и как их остановить. */
-    private static String repeatNote(Rule r) {
-        if (r.repeatCount <= 0) return "Повторы выключены. Поставьте число больше 0, чтобы уведомление повторялось.";
+    /** Пояснение под полями повторов: сколько уведомлений в серии, их точные времена и как остановить. */
+    private static String repeatNote(Rule r, List<Integer> t) {
+        if (r.repeatCount <= 0) return "Повторы выключены. Поставьте в «Сколько раз ещё» число больше 0.";
         int eff = r.effectiveRepeats();
         if (eff == 0) {
-            return "Повторы не помещаются: они должны закончиться раньше следующего времени (интервал "
-                    + r.interval + " мин). Уменьшите шаг повтора.";
+            return "Повторы не помещаются: серия должна закончиться раньше соседнего времени (интервал "
+                    + r.interval + " мин). Уменьшите шаг.";
         }
-        String s = "После каждого уведомления ещё " + eff + " " + timesWord(eff) + ", каждые " + r.repeatEvery
-                + " мин; последнее через " + (eff * r.repeatEvery) + " мин.";
-        if (eff < r.repeatCount) s += " Остальные не помещаются до следующего времени.";
-        return s + "\nЧтобы остановить повторы, нажмите «Готово» в уведомлении или смахните его.";
+        int total = eff + 1;
+        StringBuilder s = new StringBuilder();
+        s.append(r.repeatMode == Rule.REPEAT_BEFORE ? "Серия идёт ДО времени. " : "Серия идёт ПОСЛЕ времени. ");
+        s.append(total).append(' ').append(TimeMath.plural(total, "уведомление", "уведомления", "уведомлений"))
+                .append(" с шагом ").append(r.repeatEvery).append(" мин.");
+        if (!t.isEmpty()) s.append("\nДля ").append(TimeMath.fmt(t.get(0))).append(": ").append(TimeMath.seriesText(r, t.get(0)));
+        if (eff < r.repeatCount) s.append("\nОстальные повторы не помещаются до соседнего времени.");
+        s.append("\nОстановить серию: «Готово» в уведомлении, тап по нему или смахивание.");
+        return s.toString();
     }
 
-    private static String timesWord(int n) {
-        int a = n % 100;
-        int b = n % 10;
-        if (a >= 11 && a <= 14) return "раз";
-        if (b == 1) return "раз";
-        if (b >= 2 && b <= 4) return "раза";
-        return "раз";
-    }
 
     private String subtitle(Rule r, List<Integer> t, int nowMin) {
         if (t.isEmpty()) return "Нет времён: проверьте начало и конец";
@@ -889,8 +921,9 @@ public class MainActivity extends Activity {
         if (status == null) return;
         long now = System.currentTimeMillis();
         long best = -1;
-        for (TimeMath.Event e : TimeMath.events(rules, now, now + 36L * 60L * TimeMath.MIN)) {
-            if (e.repeat == 0 && (best < 0 || e.at < best)) best = e.at; // в «Следующем» только основные
+        for (TimeMath.Event e : TimeMath.events(rules, now, now + 36L * 60L * TimeMath.MIN,
+                TimeZone.getDefault(), Store.doneMap(this))) {
+            if (best < 0 || e.at < best) best = e.at; // ближайшее уведомление любого вида: основное или из серии
         }
         if (best > 0) {
             status.setText("Следующее: "

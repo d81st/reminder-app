@@ -7,7 +7,7 @@ import android.database.sqlite.SQLiteOpenHelper;
 /** Локальная база SQLite внутри телефона: напоминания, журнал уведомлений и «Готово» для повторов. */
 class Db extends SQLiteOpenHelper {
     Db(Context c) {
-        super(c.getApplicationContext(), "reminder.db", null, 3);
+        super(c.getApplicationContext(), "reminder.db", null, 4);
     }
 
     @Override
@@ -25,7 +25,8 @@ class Db extends SQLiteOpenHelper {
                 + "position INTEGER NOT NULL,"
                 + "color INTEGER NOT NULL DEFAULT 0,"
                 + "repeat_every INTEGER NOT NULL DEFAULT 5,"
-                + "repeat_count INTEGER NOT NULL DEFAULT 0)");
+                + "repeat_count INTEGER NOT NULL DEFAULT 0,"
+                + "repeat_mode INTEGER NOT NULL DEFAULT 0)");
         createLog(db);
         createDone(db);
     }
@@ -42,6 +43,10 @@ class Db extends SQLiteOpenHelper {
             db.execSQL("ALTER TABLE rules ADD COLUMN repeat_count INTEGER NOT NULL DEFAULT 0");
             createDone(db);
         }
+        if (oldVersion < 4) {
+            // 0 = повторы до времени (Rule.REPEAT_BEFORE), 1 = после времени
+            db.execSQL("ALTER TABLE rules ADD COLUMN repeat_mode INTEGER NOT NULL DEFAULT 0");
+        }
     }
 
     private void createLog(SQLiteDatabase db) {
@@ -52,6 +57,7 @@ class Db extends SQLiteOpenHelper {
                 + "text TEXT NOT NULL)");
     }
 
+    /** «Готово» по серии: ключ серии и момент ответа (всё, что в серии позже этого момента, не приходит). */
     private void createDone(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE IF NOT EXISTS done ("
                 + "ev_key TEXT PRIMARY KEY,"

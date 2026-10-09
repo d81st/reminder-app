@@ -11,8 +11,10 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /** Напоминания и журнал лежат в SQLite, служебные значения (тема, время последнего срабатывания) в SharedPreferences. */
@@ -100,6 +102,8 @@ class Store {
                 r.color = cur.getInt(cur.getColumnIndexOrThrow("color"));
                 r.repeatEvery = cur.getInt(cur.getColumnIndexOrThrow("repeat_every"));
                 r.repeatCount = cur.getInt(cur.getColumnIndexOrThrow("repeat_count"));
+                r.repeatMode = cur.getInt(cur.getColumnIndexOrThrow("repeat_mode")) == Rule.REPEAT_AFTER
+                        ? Rule.REPEAT_AFTER : Rule.REPEAT_BEFORE;
                 list.add(r);
             }
         } finally {
@@ -129,6 +133,7 @@ class Store {
                 v.put("color", r.color);
                 v.put("repeat_every", r.repeatEvery);
                 v.put("repeat_count", r.repeatCount);
+                v.put("repeat_mode", r.repeatMode == Rule.REPEAT_AFTER ? Rule.REPEAT_AFTER : Rule.REPEAT_BEFORE);
                 boolean updated = r.id > 0
                         && db.update("rules", v, "id=?", new String[]{String.valueOf(r.id)}) > 0;
                 if (!updated) r.id = db.insert("rules", null, v);
@@ -153,7 +158,11 @@ class Store {
 
     // ---------- «Готово»: остановка повторов ----------
 
-    /** Помечает основное уведомление как принятое: его повторы больше не придут. */
+    /**
+     * Помечает серию как принятую: всё, что в ней должно прийти позже этого момента, не придёт.
+     * Если серия уже помечена, остаётся самый первый момент (повторный тап по старому уведомлению
+     * не должен «воскрешать» уже отменённые уведомления).
+     */
     static synchronized void markDone(Context c, long ruleId, long baseAt) {
         if (ruleId <= 0) return;
         try {
@@ -161,28 +170,29 @@ class Store {
             ContentValues v = new ContentValues();
             v.put("ev_key", ruleId + ":" + baseAt);
             v.put("at", System.currentTimeMillis());
-            db.insertWithOnConflict("done", null, v, SQLiteDatabase.CONFLICT_REPLACE);
+            db.insertWithOnConflict("done", null, v, SQLiteDatabase.CONFLICT_IGNORE);
             long old = System.currentTimeMillis() - 3L * 24 * 3600 * 1000;
             db.delete("done", "at < ?", new String[]{String.valueOf(old)});
         } catch (Exception ignored) {
         }
     }
 
-    static synchronized Set<String> doneKeys(Context c) {
-        Set<String> keys = new HashSet<>();
+    /** Серии с ответом «Готово»: ключ серии -> момент ответа. */
+    static synchronized Map<String, Long> doneMap(Context c) {
+        Map<String, Long> map = new HashMap<>();
         try {
             SQLiteDatabase db = helper(c).getReadableDatabase();
             long since = System.currentTimeMillis() - 3L * 24 * 3600 * 1000;
-            Cursor cur = db.query("done", new String[]{"ev_key"}, "at >= ?",
+            Cursor cur = db.query("done", new String[]{"ev_key", "at"}, "at >= ?",
                     new String[]{String.valueOf(since)}, null, null, null);
             try {
-                while (cur.moveToNext()) keys.add(cur.getString(0));
+                while (cur.moveToNext()) map.put(cur.getString(0), cur.getLong(1));
             } finally {
                 cur.close();
             }
         } catch (Exception ignored) {
         }
-        return keys;
+        return map;
     }
 
     // ---------- журнал ----------

@@ -14,7 +14,7 @@ import android.net.Uri;
 import android.os.Build;
 
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 import java.util.TimeZone;
 
 /** Планирование будильников. Один будильник всегда стоит на ближайшее уведомление (основное или повтор). */
@@ -35,7 +35,7 @@ class Scheduler {
             AlarmManager am = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
             PendingIntent pi = pending(c);
             List<Rule> rules = Store.load(c);
-            Set<String> done = Store.doneKeys(c);
+            Map<String, Long> done = Store.doneMap(c);
             long now = System.currentTimeMillis();
             long from = Math.max(Store.getLastFired(c), now - 10 * MIN);
 
@@ -62,29 +62,11 @@ class Scheduler {
         }
     }
 
-    /** Заголовок уведомления: название, время, «через N мин» и номер повтора. */
-    static String titleFor(TimeMath.Event e) {
-        Rule r = e.rule;
-        String t = r.lead > 0
-                ? r.name + " · в " + TimeMath.fmt(e.minute)
-                : r.name + " · " + TimeMath.fmt(e.minute);
-        int left = r.lead - e.repeat * r.repeatEvery; // сколько минут осталось до самого времени
-        if (r.lead > 0 || e.repeat > 0) {
-            if (left > 0) t += " (через " + left + " мин)";
-            else if (left == 0) t += " (сейчас)";
-            else t += " (" + (-left) + " мин назад)";
-        }
-        if (e.repeat > 0 && e.groupFirstRepeat > 0) {
-            t = "Повтор " + e.repeat + "/" + r.effectiveRepeats() + " · " + t;
-        }
-        return t;
-    }
-
     /** Вызывается при срабатывании будильника: показывает всё, что подошло, и ставит следующий. */
     static void fireDue(Context c) {
         try {
             List<Rule> rules = Store.load(c);
-            Set<String> done = Store.doneKeys(c);
+            Map<String, Long> done = Store.doneMap(c);
             long now = System.currentTimeMillis();
             long last = Store.getLastFired(c);
             long from = Math.max(last, now - 10 * MIN);
@@ -92,15 +74,16 @@ class Scheduler {
 
             ensureChannel(c);
             boolean shown = Perms.notificationsOk(c);
-            // Накопившиеся повторы одного уведомления заменяют друг друга, показываем только последний
+            // Накопившиеся уведомления одной серии заменяют друг друга, показываем только последнее по времени
             List<TimeMath.Event> due = TimeMath.collapse(
                     TimeMath.events(rules, from, to, TimeZone.getDefault(), done));
             for (TimeMath.Event e : due) {
-                String title = titleFor(e);
+                String title = TimeMath.title(e);
                 String body = e.rule.text == null || e.rule.text.trim().isEmpty() ? e.rule.name : e.rule.text;
                 int id = (int) ((e.baseAt / MIN) % 100000L) * 100 + (int) (e.rule.id % 100);
-                boolean canStop = e.rule.effectiveRepeats() > 0 && e.rule.id > 0;
-                post(c, id, title, body, canStop ? e.rule.id : 0, e.baseAt, canStop && e.repeat < e.rule.effectiveRepeats());
+                boolean series = e.total > 1 && e.rule.id > 0;
+                // кнопка «Готово» нужна, пока в серии есть что-то после этого уведомления
+                post(c, id, title, body, series ? e.rule.id : 0, e.baseAt, series && e.seq < e.total);
                 Store.addLog(c, now, shown ? title : title + " (не показано: уведомления выключены)", body);
             }
             Store.setLastFired(c, Math.max(last, to));
