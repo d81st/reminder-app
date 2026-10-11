@@ -196,4 +196,35 @@ class TimeMathTest {
         assertEquals("уведомления", TimeMath.plural(3, "уведомление", "уведомления", "уведомлений"))
         assertEquals("уведомлений", TimeMath.plural(12, "уведомление", "уведомления", "уведомлений"))
     }
+
+    @Test
+    fun todayListsEachTimeOnceInOrder() {
+        val rules = listOf(
+            hourly(1).copy(repeatEvery = 1, repeatCount = 3, lead = 5),
+            Rule("Полчаса", interval = 30, skipOverlap = true, id = 2),
+        )
+        val ev = TimeMath.today(rules, at(mon[0], mon[1], mon[2], 12, 0), tz)
+        assertEquals(17, ev.size)
+        assertEquals(9 * 60, ev.first().minute)
+        assertEquals(17 * 60, ev.last().minute)
+        assertEquals(ev.map { it.minute }.sorted(), ev.map { it.minute })
+    }
+
+    @Test
+    fun todayRespectsDaysAndKeepsEarlyWarningsOfToday() {
+        // только понедельник, 00:10 «за 30 минут»: в понедельник одно время, в воскресенье — ни одного
+        val r = Rule("Ночь", start = 10, end = 10, lead = 30, days = 1, id = 1)
+        assertEquals(1, TimeMath.today(listOf(r), at(mon[0], mon[1], mon[2], 8, 0), tz).size)
+        assertTrue(TimeMath.today(listOf(r), at(2026, 10, 11, 8, 0), tz).isEmpty())
+    }
+
+    @Test
+    fun countdownText() {
+        val now = at(mon[0], mon[1], mon[2], 10, 0)
+        assertEquals("через 12 мин", TimeMath.countdown(now + 12 * TimeMath.MIN, now))
+        assertEquals("через 1 ч 05 мин", TimeMath.countdown(now + 65 * TimeMath.MIN, now))
+        assertEquals("через 2 ч", TimeMath.countdown(now + 120 * TimeMath.MIN, now))
+        assertEquals("сейчас", TimeMath.countdown(now, now))
+        assertEquals("через 2 дня", TimeMath.countdown(now + 2 * 24 * 60 * TimeMath.MIN, now))
+    }
 }

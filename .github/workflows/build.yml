@@ -26,6 +26,14 @@ jobs:
       - name: Unit tests
         run: gradle testDebugUnitTest --no-daemon --stacktrace
 
+      # снимки экранов из скриншот-тестов: можно посмотреть дизайн, не устанавливая приложение
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: app/build/screenshots
+          if-no-files-found: ignore
+
       # Свой ключ подписи из секретов (см. «Создать ключ подписи»). Без него, например в PR из форка,
       # собирается тестовая версия с ключом app/debug.keystore.
       - name: Prepare signing key

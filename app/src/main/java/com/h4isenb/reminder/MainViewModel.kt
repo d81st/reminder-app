@@ -35,6 +35,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Ближайшее основное уведомление каждого напоминания (по ключу карточки). */
     var nextByKey by mutableStateOf<Map<Long, TimeMath.Event>>(emptyMap())
         private set
+    /** Все времена сегодняшнего дня для ленты дня. */
+    var today by mutableStateOf<List<TimeMath.Event>>(emptyList())
+        private set
     /** Текущее время для подписей; обновляется раз в 30 секунд. */
     var now by mutableLongStateOf(System.currentTimeMillis())
         private set
@@ -75,9 +78,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         scheduleSave()
     }
 
-    fun add(): Rule? {
+    /** Добавить напоминание (из заготовки); null, если места больше нет. */
+    fun add(template: Rule = Templates.blank()): Rule? {
         if (rules.size >= MAX_RULES) return null
-        val r = Rule("Новое напоминание", 9 * 60, 17 * 60, 60, false, "Текст напоминания", color = rules.size % Accents.size)
+        val r = template.copy(id = 0, key = Rule.newKey(), color = rules.size % Accents.size)
         rules = rules + r
         scheduleSave()
         return r
@@ -176,8 +180,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val at = System.currentTimeMillis()
         nextJob = viewModelScope.launch {
             if (delayMs > 0) delay(delayMs)
-            val byIndex = withContext(Dispatchers.Default) { TimeMath.nextByRule(snapshot, at) }
+            val (byIndex, day) = withContext(Dispatchers.Default) { TimeMath.nextByRule(snapshot, at) to TimeMath.today(snapshot, at) }
             nextByKey = byIndex.entries.associate { (i, e) -> snapshot[i].key to e }
+            today = day
         }
     }
 
