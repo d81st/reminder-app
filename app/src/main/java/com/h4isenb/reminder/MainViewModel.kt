@@ -42,6 +42,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var now by mutableLongStateOf(System.currentTimeMillis())
         private set
 
+    /** Подсказка «нажмите на карточку…» скрыта навсегда. */
+    var tipHidden by mutableStateOf(true)
+        private set
+
+    fun hideTip() {
+        tipHidden = true
+        viewModelScope.launch(Dispatchers.IO) { Store.prefs(ctx).edit().putBoolean("tipHomeHidden", true).apply() }
+    }
+
     /** Только что удалённое напоминание, которое ещё можно вернуть. */
     class Deleted(val rule: Rule, val index: Int)
 
@@ -59,6 +68,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     init {
         viewModelScope.launch {
             rules = withContext(Dispatchers.IO) { Store.load(ctx) }
+            tipHidden = withContext(Dispatchers.IO) { Store.prefs(ctx).getBoolean("tipHomeHidden", false) }
             loaded = true
             recomputeNext(0)
             refreshStatus()
