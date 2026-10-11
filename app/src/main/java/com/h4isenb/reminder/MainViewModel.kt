@@ -7,35 +7,66 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 
-/** Состояние главного экрана: список напоминаний с отложенным сохранением, журнал и строка «Следующее». */
+/**
+ * Состояние главного экрана: список напоминаний с отложенным сохранением, журнал и строка «Следующее».
+ * Вся работа с базой и расчёт расписания идут в фоне, чтобы интерфейс не подтормаживал.
+ */
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val ctx get() = getApplication<Application>()
 
-    var rules by mutableStateOf(Store.load(app))
+    var rules by mutableStateOf<List<Rule>>(emptyList())
+        private set
+    /** false, пока напоминания читаются из базы при запуске. */
+    var loaded by mutableStateOf(false)
         private set
     var log by mutableStateOf<List<Store.LogItem>>(emptyList())
         private set
     var nextAt by mutableStateOf<Long?>(null)
         private set
+    /** Ближайшее основное уведомление каждого напоминания (по ключу карточки). */
+    var nextByKey by mutableStateOf<Map<Long, TimeMath.Event>>(emptyMap())
+        private set
     /** Текущее время для подписей; обновляется раз в 30 секунд. */
     var now by mutableLongStateOf(System.currentTimeMillis())
         private set
 
+    /** Только что удалённое напоминание, которое ещё можно вернуть. */
+    class Deleted(val rule: Rule, val index: Int)
+
     private var dirty = false
     private var saveJob: Job? = null
+    private var nextJob: Job? = null
+    /**
+     * id, полученные новыми карточками при сохранении (ключ карточки -> id). Сохранения могут идти одно за другим,
+     * и следующее должно знать id, выданный предыдущим, иначе новое напоминание запишется в базу дважды.
+     */
+    private val knownIds = ConcurrentHashMap<Long, Long>()
+    private val saveLock = Any()
+    private val saveMutex = Mutex()
 
     init {
+        viewModelScope.launch {
+            rules = withContext(Dispatchers.IO) { Store.load(ctx) }
+            loaded = true
+            recomputeNext(0)
+            refreshStatus()
+        }
         viewModelScope.launch {
             while (true) {
                 delay(30_000)
                 now = System.currentTimeMillis()
+                recomputeNext(0)
             }
         }
-        refreshStatus()
     }
 
     /** Изменение пользователем: обновить и сохранить через паузу (чтобы не писать в базу на каждую букву). */
@@ -52,8 +83,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return r
     }
 
-    fun delete(key: Long) {
+    fun delete(key: Long): Deleted? {
+        val i = rules.indexOfFirst { it.key == key }
+        if (i < 0) return null
+        val d = Deleted(rules[i], i)
         rules = rules.filter { it.key != key }
+        persist()
+        return d
+    }
+
+    /** «Отменить» после удаления: карточка возвращается на своё место. */
+    fun restore(d: Deleted) {
+        if (rules.size >= MAX_RULES || rules.any { it.key == d.rule.key }) return
+        val list = rules.toMutableList()
+        list.add(d.index.coerceIn(0, list.size), d.rule)
+        rules = list
         persist()
     }
 
@@ -78,49 +122,96 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             delay(700)
             persist()
         }
+        recomputeNext(300)
     }
 
+    /** Сохранить сразу и дождаться (при уходе с экрана, чтобы правка не потерялась). */
     fun flush() {
-        if (dirty) persist()
+        if (!dirty) return
+        saveJob?.cancel()
+        applySaved(saveBlocking(rules))
     }
 
+    /**
+     * Сохранить в фоне. Сохранения идут строго по очереди, и каждое берёт самое свежее состояние списка:
+     * старое сохранение не может «вернуть» удалённую карточку или откатить правку.
+     */
     fun persist() {
         saveJob?.cancel()
+        viewModelScope.launch {
+            saveMutex.withLock {
+                val snapshot = rules
+                val saved = withContext(Dispatchers.IO) { saveBlocking(snapshot) }
+                applySaved(saved)
+            }
+            recomputeNext(0)
+            refreshStatus()
+        }
+    }
+
+    private fun saveBlocking(snapshot: List<Rule>): List<Rule> = synchronized(saveLock) {
         // В базу идут исправленные значения, а в полях остаётся то, что вводит человек (например, пустое название)
-        val saved = Store.save(ctx, rules.map(::sanitize))
-        val ids = saved.associate { it.key to it.id }
-        rules = rules.map { r -> ids[r.key]?.let { r.copy(id = it) } ?: r }
+        val prepared = snapshot.map { r -> sanitize(if (r.id == 0L) knownIds[r.key]?.let { r.copy(id = it) } ?: r else r) }
+        val saved = Store.save(ctx, prepared)
+        for (s in saved) knownIds[s.key] = s.id
         // правка расписания не должна «догонять» уже прошедшие времена. Запас в 3 секунды нужен, чтобы
         // уведомление, время которого наступило прямо сейчас, но будильник ещё не сработал, не потерялось.
         Store.setLastFired(ctx, maxOf(Store.getLastFired(ctx), System.currentTimeMillis() - 3000L))
         Scheduler.ensureChannel(ctx)
         Scheduler.scheduleNext(ctx)
-        dirty = false
-        refreshStatus()
+        saved
+    }
+
+    /** Проставляет id, выданные базой, не трогая то, что человек успел изменить за время сохранения. */
+    private fun applySaved(saved: List<Rule>) {
+        val ids = saved.associate { it.key to it.id }
+        rules = rules.map { r -> ids[r.key]?.let { if (it != r.id) r.copy(id = it) else r } ?: r }
+        dirty = saveJob?.isActive == true
+    }
+
+    /** Пересчитать «след.» для карточек в фоне; delayMs — пауза, чтобы не считать на каждую букву. */
+    private fun recomputeNext(delayMs: Long) {
+        nextJob?.cancel()
+        val snapshot = rules
+        val at = System.currentTimeMillis()
+        nextJob = viewModelScope.launch {
+            if (delayMs > 0) delay(delayMs)
+            val byIndex = withContext(Dispatchers.Default) { TimeMath.nextByRule(snapshot, at) }
+            nextByKey = byIndex.entries.associate { (i, e) -> snapshot[i].key to e }
+        }
     }
 
     fun refreshStatus() {
         now = System.currentTimeMillis()
-        nextAt = Scheduler.nextAt(ctx)
+        viewModelScope.launch {
+            nextAt = withContext(Dispatchers.IO) { Scheduler.nextAt(ctx) }
+        }
     }
 
     /** Повторная загрузка после возврата на экран (например, отложенный будильник мог сработать). */
     fun reload() {
-        if (!dirty) {
-            // ключи карточек сохраняем, чтобы раскрытые карточки не схлопнулись
-            val keys = rules.filter { it.id > 0 }.associate { it.id to it.key }
-            rules = Store.load(ctx).map { r -> keys[r.id]?.let { r.copy(key = it) } ?: r }
+        if (!loaded) return
+        viewModelScope.launch {
+            val fresh = withContext(Dispatchers.IO) { Store.load(ctx) }
+            if (!dirty && saveJob?.isActive != true) {
+                // ключи карточек сохраняем, чтобы раскрытые карточки не схлопнулись
+                val keys = rules.filter { it.id > 0 }.associate { it.id to it.key }
+                rules = fresh.map { r -> keys[r.id]?.let { r.copy(key = it) } ?: r }
+                recomputeNext(0)
+            }
+            refreshStatus()
         }
-        refreshStatus()
     }
 
     fun loadLog() {
-        log = Store.loadLog(ctx, 100)
+        viewModelScope.launch { log = withContext(Dispatchers.IO) { Store.loadLog(ctx, 100) } }
     }
 
     fun clearLog() {
-        Store.clearLog(ctx)
-        loadLog()
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { Store.clearLog(ctx) }
+            log = emptyList()
+        }
     }
 
     companion object {

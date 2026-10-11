@@ -148,7 +148,11 @@ object Store {
             db.rawQuery("SELECT id FROM rules", null).use { cur ->
                 while (cur.moveToNext()) cur.getLong(0).let { if (it !in keep) remove.add(it) }
             }
-            for (id in remove) db.delete("rules", "id=?", arrayOf(id.toString()))
+            for (id in remove) {
+                db.delete("rules", "id=?", arrayOf(id.toString()))
+                // отложенный будильник удалённого напоминания звонить не должен
+                db.delete("snooze", "rule_id=?", arrayOf(id.toString()))
+            }
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -302,4 +306,17 @@ object Store {
     }
 
     fun setLastFired(c: Context, v: Long) = prefs(c).edit().putLong("lastFired", v).apply()
+
+    /**
+     * Секрет, который кладётся в уведомления. По нему экран отличает настоящий тап по уведомлению
+     * от команды «Готово», присланной чужим приложением.
+     */
+    @Synchronized
+    fun intentToken(c: Context): String {
+        val p = prefs(c)
+        p.getString("intentToken", null)?.let { return it }
+        val t = java.util.UUID.randomUUID().toString()
+        p.edit().putString("intentToken", t).apply()
+        return t
+    }
 }

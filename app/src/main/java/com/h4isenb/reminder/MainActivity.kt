@@ -2,7 +2,6 @@ package com.h4isenb.reminder
 
 import android.Manifest
 import android.content.Intent
-import android.graphics.Rect
 import android.media.Ringtone
 import android.media.RingtoneManager
 import android.net.Uri
@@ -13,13 +12,14 @@ import android.os.Looper
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.toArgb
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 
@@ -37,7 +37,6 @@ class MainActivity : ComponentActivity() {
 
     private var dark by mutableStateOf(false)
     private var perms by mutableStateOf(PermState())
-    private var keyboardOpen by mutableStateOf(false)
     private var soundTitle by mutableStateOf("")
     /** Напоминания из принятого кода, ждут подтверждения «Добавить» / «Заменить». */
     private var pendingImport by mutableStateOf<List<Rule>?>(null)
@@ -84,7 +83,6 @@ class MainActivity : ComponentActivity() {
                 MainScreen(
                     vm = vm,
                     perms = perms,
-                    keyboardOpen = keyboardOpen,
                     soundTitle = soundTitle,
                     actions = actions,
                     pendingImport = pendingImport,
@@ -94,14 +92,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Когда открыта клавиатура, нижнюю панель прячем, чтобы не съедала место
         val root = window.decorView
-        root.viewTreeObserver.addOnGlobalLayoutListener {
-            val r = Rect()
-            root.getWindowVisibleDisplayFrame(r)
-            val h = root.rootView.height
-            keyboardOpen = h > 0 && (h - r.bottom) > h * 0.15f
-        }
 
         Scheduler.ensureChannel(this)
         AlarmService.ensureChannel(this)
@@ -114,19 +105,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Приложение рисуется на весь экран, под строкой состояния и панелью навигации (обязательно с Android 15).
+     * Шапка тёмная, поэтому значки строки состояния всегда светлые; значки внизу — по теме приложения.
+     */
     private fun applyBars() {
-        val p = palette(dark)
-        window.statusBarColor = (if (dark) androidx.compose.ui.graphics.Color(0xFF1E1B4B) else IndigoDark).toArgb()
-        window.navigationBarColor = p.card.toArgb()
-        if (Build.VERSION.SDK_INT >= 26) {
-            val dv = window.decorView
-            @Suppress("DEPRECATION")
-            dv.systemUiVisibility = if (dark) {
-                dv.systemUiVisibility and android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
-            } else {
-                dv.systemUiVisibility or android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
-            }
-        }
+        val clear = android.graphics.Color.TRANSPARENT
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(clear),
+            navigationBarStyle = if (dark) SystemBarStyle.dark(clear) else SystemBarStyle.light(clear, clear),
+        )
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -156,7 +144,7 @@ class MainActivity : ComponentActivity() {
 
     private fun tryImport(text: String) {
         try {
-            pendingImport = RuleCodec.decode(text)
+            pendingImport = RuleCodec.forImport(RuleCodec.decode(text))
         } catch (e: RuleCodec.BadCode) {
             toast(e.message ?: "Не удалось прочитать код")
         }
@@ -193,11 +181,14 @@ class MainActivity : ComponentActivity() {
         if (intent == null) return
         val rule = intent.getLongExtra("done_rule", 0L)
         val base = intent.getLongExtra("done_base", 0L)
-        if (rule > 0 && base > 0) {
+        // экран доступен другим приложениям, поэтому «Готово» принимаем только из своего уведомления
+        val ours = intent.getStringExtra("done_token") == Store.intentToken(this)
+        if (rule > 0 && base > 0 && ours) {
             Store.markDone(this, rule, base)
             Scheduler.scheduleNext(this)
             intent.removeExtra("done_rule")
             intent.removeExtra("done_base")
+            intent.removeExtra("done_token")
         }
     }
 

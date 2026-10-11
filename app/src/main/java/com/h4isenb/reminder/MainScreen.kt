@@ -16,6 +16,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -40,7 +45,6 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -56,6 +60,10 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -109,7 +117,6 @@ private val ru = Locale("ru")
 fun MainScreen(
     vm: MainViewModel,
     perms: PermState,
-    keyboardOpen: Boolean,
     soundTitle: String,
     actions: MainActions,
     pendingImport: List<Rule>?,
@@ -127,6 +134,19 @@ fun MainScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val expanded = remember { mutableStateMapOf<Long, Boolean>() }
+    val snackbar = remember { SnackbarHostState() }
+    // Когда открыта клавиатура, нижнюю панель и кнопку «+» прячем, чтобы не съедали место
+    val keyboardOpen = WindowInsets.isImeVisible
+    val onDeleted: (Rule) -> Unit = { r ->
+        val d = vm.delete(r.key)
+        if (d != null) {
+            scope.launch {
+                snackbar.currentSnackbarData?.dismiss()
+                val res = snackbar.showSnackbar("Удалено: ${r.name}", actionLabel = "Отменить", duration = SnackbarDuration.Long)
+                if (res == SnackbarResult.ActionPerformed) vm.restore(d)
+            }
+        }
+    }
 
     if (showExport) ExportDialog(vm.rules, actions) { showExport = false }
     if (showPaste) PasteDialog(onDismiss = { showPaste = false }) { text ->
@@ -135,11 +155,11 @@ fun MainScreen(
     }
     pendingImport?.let { ImportDialog(it, vm.rules.size, onImport, onImportCancel) }
 
-    Column(Modifier.fillMaxSize().background(p.bg)) {
+    Column(Modifier.fillMaxSize().background(p.bg).imePadding()) {
         Header(vm, perms, actions)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (tab) {
-                0 -> RemindersPage(vm, listState, expanded, actions)
+                0 -> RemindersPage(vm, listState, expanded, actions, onDeleted)
                 1 -> LogPage(vm)
                 else -> SettingsPage(perms, soundTitle, actions, onExport = { showExport = true }, onPaste = { showPaste = true })
             }
@@ -160,6 +180,7 @@ fun MainScreen(
                     modifier = Modifier.align(Alignment.BottomEnd).padding(18.dp),
                 ) { Icon(Icons.Filled.Add, contentDescription = "Добавить напоминание") }
             }
+            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = if (tab == 0) 80.dp else 8.dp))
         }
         if (!keyboardOpen) {
             Box(Modifier.fillMaxWidth().height(1.dp).background(p.line))
@@ -195,6 +216,8 @@ private fun Header(vm: MainViewModel, perms: PermState, actions: MainActions) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp))
             .background(Brush.linearGradient(colors))
+            // шапка заходит под строку состояния, а текст — нет
+            .windowInsetsPadding(WindowInsets.statusBars)
             .padding(start = 20.dp, top = 18.dp, end = 14.dp, bottom = 18.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -235,13 +258,16 @@ private fun RemindersPage(
     listState: androidx.compose.foundation.lazy.LazyListState,
     expanded: MutableMap<Long, Boolean>,
     actions: MainActions,
+    onDelete: (Rule) -> Unit,
 ) {
     val p = LocalPalette.current
     val rules = vm.rules
     val now = vm.now
-    val next = remember(rules, now) { TimeMath.nextByRule(rules, now) }
-    var toDelete by remember { mutableStateOf<Rule?>(null) }
+    val next = vm.nextByKey
+    // список целиком нужен только раскрытой карточке; лямбда не меняется, поэтому остальные карточки не перерисовываются
+    val allRules = remember(vm) { { vm.rules } }
 
+    if (!vm.loaded) return
     if (rules.isEmpty()) {
         Text(
             "Пока нет напоминаний. Нажмите «+», чтобы создать.", color = p.muted, fontSize = 15.sp,
@@ -256,43 +282,26 @@ private fun RemindersPage(
         modifier = Modifier.fillMaxSize(),
     ) {
         items(rules, key = { it.key }) { r ->
-            val idx = rules.indexOf(r)
             RuleCard(
                 r = r,
-                idx = idx,
-                rules = rules,
-                next = next[idx],
+                allRules = allRules,
+                next = next[r.key],
                 now = now,
                 expanded = expanded[r.key] == true,
                 onToggle = { expanded[r.key] = expanded[r.key] != true },
                 onChange = { change -> vm.update(r.key, change) },
-                onDelete = { toDelete = r },
+                // без подтверждения: после удаления внизу есть «Отменить»
+                onDelete = { onDelete(r) },
                 actions = actions,
             )
         }
-    }
-
-    toDelete?.let { r ->
-        AlertDialog(
-            onDismissRequest = { toDelete = null },
-            title = { Text("Удалить напоминание?") },
-            text = { Text(r.name) },
-            confirmButton = {
-                TextButton(onClick = {
-                    vm.delete(r.key)
-                    toDelete = null
-                }) { Text("Удалить", color = Rose) }
-            },
-            dismissButton = { TextButton(onClick = { toDelete = null }) { Text("Отмена") } },
-        )
     }
 }
 
 @Composable
 private fun RuleCard(
     r: Rule,
-    idx: Int,
-    rules: List<Rule>,
+    allRules: () -> List<Rule>,
     next: TimeMath.Event?,
     now: Long,
     expanded: Boolean,
@@ -324,7 +333,7 @@ private fun RuleCard(
             }
             Column(Modifier.weight(1f)) {
                 Text(r.name, color = p.ink, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(subtitle(r, rules, idx, next, now), color = p.muted, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(subtitle(r, next, now), color = p.muted, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             Switch(
                 checked = r.enabled,
@@ -336,7 +345,10 @@ private fun RuleCard(
                 contentDescription = null, tint = p.muted, modifier = Modifier.padding(start = 6.dp),
             )
         }
-        if (expanded) key(r.key) { RuleDetail(r, idx, rules, next, now, acc, onChange, onDelete, actions) }
+        if (expanded) key(r.key) {
+            val rules = allRules()
+            RuleDetail(r, rules.indexOfFirst { it.key == r.key }, rules, next, now, acc, onChange, onDelete, actions)
+        }
     }
 }
 
@@ -517,8 +529,8 @@ private fun sameDay(a: Long, b: Long): Boolean {
     return x.get(Calendar.YEAR) == y.get(Calendar.YEAR) && x.get(Calendar.DAY_OF_YEAR) == y.get(Calendar.DAY_OF_YEAR)
 }
 
-private fun subtitle(r: Rule, rules: List<Rule>, idx: Int, next: TimeMath.Event?, now: Long): String {
-    if (TimeMath.times(rules, idx).isEmpty()) return "Нет времён: проверьте начало и конец"
+private fun subtitle(r: Rule, next: TimeMath.Event?, now: Long): String {
+    if (r.rawTimes().isEmpty()) return "Нет времён: проверьте начало и конец"
     val range = if (r.start == r.end) "в " + TimeMath.fmt(r.start)
     else TimeMath.fmt(r.start) + "–" + TimeMath.fmt(r.end) + " · каждые " + r.interval + " мин"
     val base = range + " · " + Rule.daysText(r.days) + (if (r.effectiveRepeats() > 0) " · ↻" + r.effectiveRepeats() else "")
@@ -982,6 +994,9 @@ private fun ImportDialog(list: List<Rule>, mine: Int, onImport: (replace: Boolea
                     Text(shortInfo(r) + if (r.enabled) "" else " · выключено", color = p.muted, fontSize = 12.sp)
                 }
             }
+        }
+        if (list.any { it.isAlarm }) {
+            Hint("Будильники добавятся выключенными: проверьте время и включите их сами.")
         }
         Spacer(Modifier.height(14.dp))
         PrimaryButton("Добавить к моим", Modifier.fillMaxWidth()) { onImport(false) }

@@ -70,4 +70,11 @@ class RuleCodecTest {
         assertEquals(20, r.repeatCount)
         assertEquals(1, r.snoozeMin)
     }
+
+    @Test
+    fun importedAlarmsAreDisabled() {
+        val got = RuleCodec.forImport(RuleCodec.decode(RuleCodec.encode(sample().map { it.copy(enabled = true) })))
+        assertEquals(listOf(true, false), got.map { it.enabled })
+        assertTrue(got[1].isAlarm)
+    }
 }

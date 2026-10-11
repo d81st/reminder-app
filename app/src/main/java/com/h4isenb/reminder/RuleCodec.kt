@@ -105,6 +105,12 @@ object RuleCodec {
         return out
     }
 
+    /**
+     * Что делать с полученными напоминаниями перед добавлением: будильники приходят выключенными.
+     * Иначе любой мог бы прислать «шутку» с будильником на 3 часа ночи, который сработает сам.
+     */
+    fun forImport(rules: List<Rule>): List<Rule> = rules.map { if (it.isAlarm) it.copy(enabled = false) else it }
+
     private fun deflate(data: ByteArray): ByteArray {
         val d = Deflater(Deflater.BEST_COMPRESSION)
         d.setInput(data)

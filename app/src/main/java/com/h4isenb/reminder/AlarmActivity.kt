@@ -4,6 +4,8 @@ import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +14,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,6 +51,10 @@ class AlarmActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
         if (Build.VERSION.SDK_INT >= 27) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
@@ -96,6 +104,8 @@ private fun AlarmScreen(r: AlarmService.Ringing, onSnooze: () -> Unit, onDismiss
         Modifier
             .fillMaxSize()
             .background(Brush.verticalGradient(listOf(Color(0xFF1E1B4B), IndigoDark, Color(0xFF0F1220))))
+            .systemBarsPadding()
+            .imePadding()
             .padding(horizontal = 24.dp, vertical = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween,
