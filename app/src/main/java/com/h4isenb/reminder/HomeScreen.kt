@@ -43,7 +43,10 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.foundation.border
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SnackbarDuration
@@ -176,6 +179,8 @@ fun MainScreen(
                     onDelete = onDeleted,
                     showTip = !vm.tipHidden,
                     onHideTip = vm::hideTip,
+                    pausedUntil = vm.pausedUntil,
+                    onPause = vm::setPause,
                 )
                 1 -> LogPage(vm)
                 else -> SettingsPage(perms, soundTitle, actions, onExport = { showExport = true }, onPaste = { showPaste = true })
@@ -293,6 +298,8 @@ fun HomePage(
     onDelete: (Rule) -> Unit,
     showTip: Boolean = false,
     onHideTip: () -> Unit = {},
+    pausedUntil: Long = 0L,
+    onPause: (Long) -> Unit = {},
 ) {
     val p = LocalPalette.current
     if (!loaded) return
@@ -307,7 +314,8 @@ fun HomePage(
         verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
-        item(key = "header") { TodayHeader(rules, nextByKey, now, onToggleTheme) }
+        item(key = "header") { TodayHeader(rules, nextByKey, now, onToggleTheme, pausedUntil, onPause) }
+        if (pausedUntil > now) item(key = "paused") { PausedBanner(pausedUntil, now) { onPause(0L) } }
         if (showTip && rules.isNotEmpty()) item(key = "tip") { TipBanner(onHideTip) }
         val warn = when {
             !perms.notifications -> "Уведомления выключены. Разрешите их во вкладке «Настройки»."
@@ -369,7 +377,14 @@ private fun SwipeToDelete(onDelete: () -> Unit, modifier: Modifier, content: @Co
 
 /** Дата, тема и крупно — сколько осталось до ближайшего напоминания. */
 @Composable
-private fun TodayHeader(rules: List<Rule>, nextByKey: Map<Long, TimeMath.Event>, now: Long, onToggleTheme: () -> Unit) {
+private fun TodayHeader(
+    rules: List<Rule>,
+    nextByKey: Map<Long, TimeMath.Event>,
+    now: Long,
+    onToggleTheme: () -> Unit,
+    pausedUntil: Long,
+    onPause: (Long) -> Unit,
+) {
     val p = LocalPalette.current
     val date = remember(now / 60_000 / 60) {
         SimpleDateFormat("EEEE, d MMMM", ru).format(Date(now)).replaceFirstChar { it.titlecase(ru) }
@@ -378,6 +393,8 @@ private fun TodayHeader(rules: List<Rule>, nextByKey: Map<Long, TimeMath.Event>,
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(date, color = p.muted, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+            if (pausedUntil <= now && rules.isNotEmpty()) PauseButton(now, onPause)
+            Spacer(Modifier.size(8.dp))
             Box(
                 Modifier.size(44.dp).clip(CircleShape).background(p.card)
                     .clickable(role = Role.Button, onClickLabel = "Сменить тему", onClick = onToggleTheme)
@@ -401,6 +418,55 @@ private fun TodayHeader(rules: List<Rule>, nextByKey: Map<Long, TimeMath.Event>,
                 Text(" · " + whenShort(t, now) + TimeMath.fmt(soonest.minute), color = p.muted, fontSize = 16.sp, maxLines = 1)
             }
         }
+    }
+}
+
+/** Кнопка «Пауза» в шапке: меню на час, на 3 часа, до конца дня. */
+@Composable
+private fun PauseButton(now: Long, onPause: (Long) -> Unit) {
+    val p = LocalPalette.current
+    var open by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp)).background(p.card)
+                .clickable(role = Role.Button, onClickLabel = "Поставить на паузу") { open = true }.padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(painterResource(R.drawable.ic_pause), contentDescription = null, tint = p.ink, modifier = Modifier.size(16.dp))
+            Text("Пауза", color = p.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = p.card) {
+            for ((label, until) in listOf(
+                "На 1 час" to now + Pause.HOUR,
+                "На 3 часа" to now + 3 * Pause.HOUR,
+                "До конца дня" to TimeMath.endOfDay(now),
+            )) {
+                DropdownMenuItem(text = { Text(label, color = p.ink) }, onClick = { open = false; onPause(until) })
+            }
+        }
+    }
+}
+
+/** Плашка «На паузе до 15:30» с кнопкой «Продолжить». */
+@Composable
+private fun PausedBanner(until: Long, now: Long, onResume: () -> Unit) {
+    val p = LocalPalette.current
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(p.alarmCard).padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(painterResource(R.drawable.ic_pause), contentDescription = null, tint = Amber, modifier = Modifier.size(20.dp))
+        Column(Modifier.weight(1f)) {
+            Text("На паузе " + Phrases.pauseUntil(until, now), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text("Напоминания и будильники не придут", color = p.alarmMuted, fontSize = 12.sp)
+        }
+        Box(
+            Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(14.dp)).background(Amber)
+                .clickable(role = Role.Button, onClick = onResume).padding(horizontal = 14.dp),
+            contentAlignment = Alignment.Center,
+        ) { Text("Продолжить", color = p.alarmCard, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
     }
 }
 

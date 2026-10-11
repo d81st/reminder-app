@@ -61,12 +61,12 @@ class ScreenshotTest {
     }
 
     @Composable
-    private fun Home() {
+    private fun Home(pausedUntil: Long = 0L) {
         val next = TimeMath.nextByRule(rules, now).entries.associate { (i, e) -> rules[i].key to e }
         HomePage(
             rules = rules, loaded = true, nextByKey = next, today = TimeMath.today(rules, now), now = now,
             perms = PermState(), onToggleTheme = {}, onOpen = {}, onEnabled = { _, _ -> }, onDelete = {},
-            showTip = true,
+            showTip = pausedUntil == 0L, pausedUntil = pausedUntil,
         )
     }
 
@@ -77,6 +77,7 @@ class ScreenshotTest {
 
     @Test fun homeLight() = shot("1_home_light", false) { Home() }
     @Test fun homeDark() = shot("2_home_dark", true) { Home() }
+    @Test fun homePausedLight() = shot("7_home_paused_light", false) { Home(pausedUntil = now + 72 * 60_000L) }
     // редактор длинный: снимаем высоким экраном, чтобы был виден пример «Как это будет»
     @Config(qualifiers = "w390dp-h1900dp-hdpi")
     @Test fun editorQuietLight() = shot("3_editor_quiet_light", false) { Editor(0) }

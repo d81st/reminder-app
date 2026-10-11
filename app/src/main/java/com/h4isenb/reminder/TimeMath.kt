@@ -211,6 +211,18 @@ object TimeMath {
             .sortedWith(compareBy<Event>({ it.minute }, { it.index }))
     }
 
+    /** Ближайшая полночь после now: «пауза до конца дня». */
+    fun endOfDay(now: Long, tz: TimeZone = TimeZone.getDefault()): Long {
+        val c = Calendar.getInstance(tz)
+        c.timeInMillis = now
+        c.set(Calendar.HOUR_OF_DAY, 0)
+        c.set(Calendar.MINUTE, 0)
+        c.set(Calendar.SECOND, 0)
+        c.set(Calendar.MILLISECOND, 0)
+        c.add(Calendar.DAY_OF_YEAR, 1)
+        return c.timeInMillis
+    }
+
     /** Сколько времени осталось до момента: «через 12 мин», «через 1 ч 05 мин», «сейчас». */
     fun countdown(at: Long, now: Long): String {
         val m = Math.ceil((at - now) / MIN.toDouble()).toLong()

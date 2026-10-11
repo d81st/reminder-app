@@ -52,4 +52,16 @@ class PhrasesTest {
         assertEquals("Вы нажали «Готово» в 09:50: остальные 2 уведомления не придут.", Phrases.explain(p, 600, 1))
         assertEquals("Придёт одно уведомление в 10:00. Повторов не будет.", Phrases.explain(hourly, 600))
     }
+
+    @Test
+    fun pauseLabels() {
+        val tz = java.util.TimeZone.getTimeZone("Europe/Moscow")
+        fun at(d: Int, h: Int, m: Int) = java.util.Calendar.getInstance(tz).apply { clear(); set(2026, 9, d, h, m, 0) }.timeInMillis
+        val now = at(12, 14, 30)
+        assertEquals("до 15:30", Phrases.pauseUntil(now + 3600_000, now, tz))
+        assertEquals("до конца дня", Phrases.pauseUntil(TimeMath.endOfDay(now, tz), now, tz))
+        assertEquals(at(13, 0, 0), TimeMath.endOfDay(now, tz))
+        assertEquals("до завтра 09:00", Phrases.pauseUntil(at(13, 9, 0), now, tz))
+        assertEquals("до чт 09:00", Phrases.pauseUntil(at(15, 9, 0), now, tz))
+    }
 }

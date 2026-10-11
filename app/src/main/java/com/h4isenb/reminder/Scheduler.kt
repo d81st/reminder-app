@@ -34,7 +34,9 @@ object Scheduler {
 
     private fun findNext(c: Context, from: Long, now: Long): Next? {
         val rules = Store.load(c)
-        val ev = TimeMath.events(rules, from, now + 36 * 60 * MIN, TimeZone.getDefault(), Store.doneMap(c)).firstOrNull()
+        // на паузе ничего не приходит: ищем первое событие после неё
+        val start = maxOf(from, Pause.until(c))
+        val ev = TimeMath.events(rules, start, maxOf(now, start) + 36 * 60 * MIN, TimeZone.getDefault(), Store.doneMap(c)).firstOrNull()
         val sn = Store.snoozes(c).firstOrNull()
         return when {
             ev == null && sn == null -> null
@@ -46,8 +48,17 @@ object Scheduler {
     /** Ближайший момент срабатывания для подписи «Следующее» (с отложенными будильниками). */
     fun nextAt(c: Context): Long? = findNext(c, System.currentTimeMillis(), System.currentTimeMillis())?.at
 
-    /** Ставит будильник на ближайшее событие. */
+    /** Ставит будильник на ближайшее событие и обновляет виджет и плитку в шторке. */
     fun scheduleNext(c: Context) {
+        try {
+            arm(c)
+        } finally {
+            ReminderWidget.refresh(c)
+            PauseTileService.refresh(c)
+        }
+    }
+
+    private fun arm(c: Context) {
         try {
             val am = c.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             val pi = pending(c)
@@ -86,7 +97,8 @@ object Scheduler {
             val rules = Store.load(c)
             val now = System.currentTimeMillis()
             val last = Store.getLastFired(c)
-            val from = maxOf(last, now - 10 * MIN)
+            // то, что выпало на паузу, не показываем и потом не «догоняем»
+            val from = maxOf(last, now - 10 * MIN, Pause.until(c))
             val to = now + 30_000L
 
             ensureChannel(c)
