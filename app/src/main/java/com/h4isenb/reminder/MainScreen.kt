@@ -36,7 +36,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -142,7 +142,7 @@ fun MainScreen(vm: MainViewModel, perms: PermState, keyboardOpen: Boolean, sound
             NavigationBar(containerColor = p.card, tonalElevation = 0.dp) {
                 val items = listOf(
                     Triple("Напоминания", Icons.Filled.Notifications, 0),
-                    Triple("Журнал", Icons.Filled.List, 1),
+                    Triple("Журнал", Icons.AutoMirrored.Filled.List, 1),
                     Triple("Настройки", Icons.Filled.Settings, 2),
                 )
                 for ((label, icon, i) in items) {

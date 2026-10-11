@@ -150,29 +150,29 @@ class MainActivity : ComponentActivity() {
 
     private val actions by lazy {
         MainActions(
-        toggleTheme = {
-            dark = !dark
-            Store.setDark(this, dark)
-            applyBars()
-        },
-        askNotifications = { fromUser = true; chainActive = false; askNotifications() },
-        askBattery = { fromUser = true; chainActive = false; askBattery() },
-        askExact = { fromUser = true; chainActive = false; askExactAlarm() },
-        askFullScreen = { fromUser = true; chainActive = false; askFullScreen() },
-        pickNotificationSound = { pickSound(null) },
-        pickAlarmSound = { key -> pickSound(key) },
-        alarmSoundTitle = { s -> alarmSoundTitle(s) },
-        sendTest = { sendTest() },
-        testAlarm = { AlarmService.start(this, 0, "Проверка будильника", "Так будет звонить будильник") },
-        openAppSettings = {
-            try {
-                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
-            } catch (e: Exception) {
-                toast("Не удалось открыть настройки")
-            }
-        },
-        toast = { toast(it) },
-        version = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "",
+            toggleTheme = {
+                dark = !dark
+                Store.setDark(this, dark)
+                applyBars()
+            },
+            askNotifications = { fromUser = true; chainActive = false; askNotifications() },
+            askBattery = { fromUser = true; chainActive = false; askBattery() },
+            askExact = { fromUser = true; chainActive = false; askExactAlarm() },
+            askFullScreen = { fromUser = true; chainActive = false; askFullScreen() },
+            pickNotificationSound = { pickSound(null) },
+            pickAlarmSound = { key -> pickSound(key) },
+            alarmSoundTitle = { s -> alarmSoundTitle(s) },
+            sendTest = { sendTest() },
+            testAlarm = { AlarmService.start(this, 0, "Проверка будильника", "Так будет звонить будильник") },
+            openAppSettings = {
+                try {
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+                } catch (e: Exception) {
+                    toast("Не удалось открыть настройки")
+                }
+            },
+            toast = { toast(it) },
+            version = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "",
         )
     }
 
