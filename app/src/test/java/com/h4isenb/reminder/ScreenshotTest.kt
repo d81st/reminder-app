@@ -16,12 +16,12 @@ import java.util.Calendar
 import java.util.TimeZone
 
 /**
- * Снимки главных экранов в светлой и тёмной теме (app/build/screenshots/*.png).
+ * Снимки главных экранов в светлой и тёмной теме (PNG в app/build/screenshots).
  * Данные и время фиксированы: понедельник, 10:18.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34], qualifiers = "w390dp-h844dp-xxhdpi")
+@Config(sdk = [34], qualifiers = "w390dp-h844dp-hdpi")
 class ScreenshotTest {
     private val tz = TimeZone.getTimeZone("Europe/Moscow")
     private var now = 0L
