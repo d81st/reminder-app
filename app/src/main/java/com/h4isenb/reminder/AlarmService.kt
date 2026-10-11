@@ -46,6 +46,8 @@ class AlarmService : Service() {
     private var vibrator: Vibrator? = null
     private var wake: PowerManager.WakeLock? = null
     private var volume = 1f
+    /** Будильники, сработавшие, пока звонил другой. */
+    private val queue = ArrayDeque<Intent>()
 
     private val timeout = Runnable {
         val r = state.value
@@ -82,6 +84,14 @@ class AlarmService : Service() {
     }
 
     private fun begin(intent: Intent) {
+        val current = state.value
+        if (current != null) {
+            // уже звонит другой будильник: этот зазвонит сразу после него, а не потеряется
+            queue.addLast(Intent(intent))
+            startForegroundWith(buildNotification(current))
+            releaseStartLock()
+            return
+        }
         val ruleId = intent.getLongExtra(EXTRA_RULE, 0L)
         val rule = Store.rule(this, ruleId)
         val r = Ringing(
@@ -92,16 +102,10 @@ class AlarmService : Service() {
             challenge = rule?.challenge ?: Rule.CHALLENGE_NONE,
             startedAt = System.currentTimeMillis(),
         )
-        stopSound() // новый будильник заменяет тот, что ещё звонил
         state.value = r
 
         ensureChannel(this)
-        val n = buildNotification(r)
-        if (Build.VERSION.SDK_INT >= 29) {
-            startForeground(RING_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
-        } else {
-            startForeground(RING_ID, n)
-        }
+        startForegroundWith(buildNotification(r))
 
         if (wake == null) {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -209,9 +213,23 @@ class AlarmService : Service() {
         vibrator = null
     }
 
+    private fun startForegroundWith(n: Notification) {
+        if (Build.VERSION.SDK_INT >= 29) {
+            startForeground(RING_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+        } else {
+            startForeground(RING_ID, n)
+        }
+    }
+
     private fun stopRinging() {
         handler.removeCallbacks(timeout)
         stopSound()
+        val next = queue.removeFirstOrNull()
+        if (next != null) {
+            state.value = null
+            begin(next)
+            return
+        }
         state.value = null
         wake?.let { if (it.isHeld) it.release() }
         wake = null

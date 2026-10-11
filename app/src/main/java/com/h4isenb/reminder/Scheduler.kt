@@ -108,9 +108,12 @@ object Scheduler {
                     if (series) e.rule.id else 0, e.baseAt, series && e.seq < e.total)
                 Store.addLog(c, now, if (shown) title else "$title (не показано: уведомления выключены)", body)
             }
+            val ids = rules.map { it.id }.toSet()
             for (s in Store.snoozes(c)) {
                 if (s.at > to) break
                 Store.deleteSnooze(c, s.id)
+                // напоминание удалили, пока будильник был отложен (0 — проверочный будильник из настроек)
+                if (s.ruleId > 0 && s.ruleId !in ids) continue
                 ring = Triple(s.ruleId, s.title, s.text)
                 Store.addLog(c, now, "⏰ ${s.title} (отложенный)", s.text)
             }
@@ -172,7 +175,9 @@ object Scheduler {
         val nm = c.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         val openIntent = Intent(c, MainActivity::class.java)
-        if (ruleId > 0) openIntent.putExtra("done_rule", ruleId).putExtra("done_base", baseAt)
+        if (ruleId > 0) {
+            openIntent.putExtra("done_rule", ruleId).putExtra("done_base", baseAt).putExtra("done_token", Store.intentToken(c))
+        }
         val open = PendingIntent.getActivity(c, id, openIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
         @Suppress("DEPRECATION")
