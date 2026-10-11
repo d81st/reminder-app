@@ -69,6 +69,9 @@ data class Rule(
         @Synchronized
         private fun nextKey(): Long = --keys
 
+        /** Новый ключ карточки для напоминания, которого ещё нет в базе. */
+        fun newKey(): Long = nextKey()
+
         /** День недели из Calendar.DAY_OF_WEEK (1 = воскресенье) в индекс 0 = понедельник ... 6 = воскресенье. */
         fun weekdayOf(calendarDow: Int): Int = (calendarDow + 5) % 7
 
