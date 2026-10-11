@@ -533,7 +533,6 @@ fun RuleCard(r: Rule, next: TimeMath.Event?, now: Long, onOpen: () -> Unit, onEn
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(top = 4.dp)) {
                 val extra = buildString {
-                    if (alarm) append("Будильник · ")
                     append(if (alarm && (r.start == r.end || r.rawTimes().size == 1)) Rule.daysText(r.days) else scheduleText(r))
                     if (alarm && r.challenge == Rule.CHALLENGE_MATH) append(" · с примером")
                     if (!alarm && r.effectiveRepeats() > 0) append(" · ↻" + r.effectiveRepeats())

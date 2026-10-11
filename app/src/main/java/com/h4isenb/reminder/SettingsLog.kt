@@ -176,7 +176,7 @@ internal fun SettingsPage(perms: PermState, soundTitle: String, actions: MainAct
             Spacer(Modifier.height(8.dp))
             Row {
                 TonalButton("Из картинки", Modifier.weight(1f).padding(end = 4.dp), actions.importImage)
-                TonalButton("Вставить текст", Modifier.weight(1f).padding(start = 4.dp), onPaste)
+                TonalButton("Из текста", Modifier.weight(1f).padding(start = 4.dp), onPaste)
             }
         }
         Section("Звук") {
