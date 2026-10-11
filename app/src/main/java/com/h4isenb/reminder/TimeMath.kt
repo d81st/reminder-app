@@ -192,6 +192,37 @@ object TimeMath {
     }
 
     /**
+     * Все времена сегодняшнего дня (основные уведомления, по одному на каждое время T), по порядку.
+     * Для ленты дня: время T берётся без «за N минут», день — по самому времени T.
+     */
+    fun today(rules: List<Rule>, now: Long, tz: TimeZone = TimeZone.getDefault()): List<Event> {
+        val c = Calendar.getInstance(tz)
+        c.timeInMillis = now
+        c.set(Calendar.HOUR_OF_DAY, 0)
+        c.set(Calendar.MINUTE, 0)
+        c.set(Calendar.SECOND, 0)
+        c.set(Calendar.MILLISECOND, 0)
+        val start = c.timeInMillis
+        c.add(Calendar.DAY_OF_YEAR, 1)
+        val end = c.timeInMillis
+        // уведомление может прийти до 3 часов раньше самого времени («за N минут»)
+        return events(rules, start - 3 * 60 * MIN - 1, end, tz)
+            .filter { it.repeat == 0 && (it.baseAt + it.rule.lead * MIN).let { t -> t >= start && t < end } }
+            .sortedWith(compareBy<Event>({ it.minute }, { it.index }))
+    }
+
+    /** Сколько времени осталось до момента: «через 12 мин», «через 1 ч 05 мин», «сейчас». */
+    fun countdown(at: Long, now: Long): String {
+        val m = Math.ceil((at - now) / MIN.toDouble()).toLong()
+        return when {
+            m <= 0 -> "сейчас"
+            m < 60 -> "через $m мин"
+            m < 24 * 60 -> "через ${m / 60} ч" + if (m % 60 != 0L) String.format(Locale.US, " %02d мин", m % 60) else ""
+            else -> "через ${m / (24 * 60)} " + plural((m / (24 * 60)).toInt(), "день", "дня", "дней")
+        }
+    }
+
+    /**
      * Номер уведомления в системе: свой для каждой серии каждого напоминания (уведомления серии заменяют друг друга).
      * Всегда не меньше 65536, так что не пересекается со служебными номерами.
      */

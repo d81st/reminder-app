@@ -12,8 +12,8 @@ android {
         applicationId 'com.h4isenb.reminder'
         minSdk 24
         targetSdk 35
-        versionCode 9
-        versionName '2.2'
+        versionCode 10
+        versionName '2.3'
     }
 
     // Свой ключ подписи приходит из CI (секреты SIGNING_KEYSTORE и SIGNING_PASSWORD), в репозитории его нет.
@@ -62,6 +62,17 @@ android {
     kotlinOptions {
         jvmTarget = '17'
     }
+
+    testOptions {
+        unitTests {
+            // ресурсы (шрифты, значки) нужны скриншот-тестам на Robolectric
+            includeAndroidResources = true
+            all {
+                // скриншоты пишутся в app/build/screenshots и выкладываются CI как артефакт
+                systemProperty 'roborazzi.test.record', 'true'
+            }
+        }
+    }
 }
 
 dependencies {
@@ -81,4 +92,11 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
     // настоящий org.json для тестов кодировщика (в android.jar только заглушки)
     testImplementation 'org.json:json:20240303'
+    // скриншот-тесты экранов без телефона: Robolectric рисует Compose, Roborazzi сохраняет PNG
+    testImplementation platform('androidx.compose:compose-bom:2024.09.03')
+    testImplementation 'androidx.compose.ui:ui-test-junit4'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
+    testImplementation 'io.github.takahirom.roborazzi:roborazzi:1.32.2'
+    testImplementation 'io.github.takahirom.roborazzi:roborazzi-compose:1.32.2'
+    debugImplementation 'androidx.compose.ui:ui-test-manifest'
 }
