@@ -62,7 +62,8 @@ class ScreenshotTest {
 
     @Composable
     private fun Home(pausedUntil: Long = 0L) {
-        val next = TimeMath.nextByRule(rules, now).entries.associate { (i, e) -> rules[i].key to e }
+        // как в приложении: на паузе «следующее» — первое после неё
+        val next = TimeMath.nextByRule(rules, maxOf(now, pausedUntil)).entries.associate { (i, e) -> rules[i].key to e }
         HomePage(
             rules = rules, loaded = true, nextByKey = next, today = TimeMath.today(rules, now), now = now,
             perms = PermState(), onToggleTheme = {}, onOpen = {}, onEnabled = { _, _ -> }, onDelete = {},
