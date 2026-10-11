@@ -55,6 +55,21 @@ object Phrases {
         else -> "Тихо · одно уведомление"
     }
 
+    /** «до 15:30», «до завтра 00:00», «до пн 09:00» — до какого момента пауза. */
+    fun pauseUntil(until: Long, now: Long, tz: java.util.TimeZone = java.util.TimeZone.getDefault()): String {
+        val a = java.util.Calendar.getInstance(tz).apply { timeInMillis = now }
+        val b = java.util.Calendar.getInstance(tz).apply { timeInMillis = until }
+        val time = TimeMath.fmt(b.get(java.util.Calendar.HOUR_OF_DAY) * 60 + b.get(java.util.Calendar.MINUTE))
+        val days = ((TimeMath.endOfDay(until - 1, tz) - TimeMath.endOfDay(now, tz)) / (24 * 3600 * 1000L)).toInt()
+        return when {
+            a.get(java.util.Calendar.YEAR) == b.get(java.util.Calendar.YEAR) &&
+                a.get(java.util.Calendar.DAY_OF_YEAR) == b.get(java.util.Calendar.DAY_OF_YEAR) -> "до $time"
+            time == "00:00" && days == 0 -> "до конца дня"
+            days <= 1 -> "до завтра $time"
+            else -> "до " + Rule.DAY_SHORT[Rule.weekdayOf(b.get(java.util.Calendar.DAY_OF_WEEK))].lowercase(Locale("ru")) + " $time"
+        }
+    }
+
     /** Все уведомления для времени t (минуты от полуночи), по порядку. */
     fun series(r: Rule, t: Int): List<Int> = TimeMath.seriesMinutes(r, t)
 

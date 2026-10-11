@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- цвета виджета; тёмные — в values-night -->
+    <color name="w_bg">#FFFFFFFF</color>
+    <color name="w_ink">#FF17163A</color>
+    <color name="w_muted">#FF5F5E80</color>
+    <color name="w_accent">#FF4338CA</color>
+    <color name="w_btn">#FFECEBFA</color>
+</resources>

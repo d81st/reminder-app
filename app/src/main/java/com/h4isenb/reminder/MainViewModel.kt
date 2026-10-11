@@ -42,6 +42,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var now by mutableLongStateOf(System.currentTimeMillis())
         private set
 
+    /** До какого момента пауза (0 — нет паузы). */
+    var pausedUntil by mutableLongStateOf(0L)
+        private set
+
+    /** Пауза до момента until (0 — снять). */
+    fun setPause(until: Long) {
+        pausedUntil = until
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { Pause.set(ctx, until) }
+            recomputeNext(0)
+            refreshStatus()
+        }
+    }
+
     /** Подсказка «нажмите на карточку…» скрыта навсегда. */
     var tipHidden by mutableStateOf(true)
         private set
@@ -69,6 +83,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             rules = withContext(Dispatchers.IO) { Store.load(ctx) }
             tipHidden = withContext(Dispatchers.IO) { Store.prefs(ctx).getBoolean("tipHomeHidden", false) }
+            pausedUntil = withContext(Dispatchers.IO) { Pause.until(ctx) }
             loaded = true
             recomputeNext(0)
             refreshStatus()
@@ -187,7 +202,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun recomputeNext(delayMs: Long) {
         nextJob?.cancel()
         val snapshot = rules
-        val at = System.currentTimeMillis()
+        // на паузе «следующее» — первое после неё
+        val at = maxOf(System.currentTimeMillis(), pausedUntil)
         nextJob = viewModelScope.launch {
             if (delayMs > 0) delay(delayMs)
             val (byIndex, day) = withContext(Dispatchers.Default) { TimeMath.nextByRule(snapshot, at) to TimeMath.today(snapshot, at) }
@@ -208,6 +224,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (!loaded) return
         viewModelScope.launch {
             val fresh = withContext(Dispatchers.IO) { Store.load(ctx) }
+            // паузу могли поставить или снять плиткой в шторке или на виджете
+            pausedUntil = withContext(Dispatchers.IO) { Pause.until(ctx) }
             if (!dirty && saveJob?.isActive != true) {
                 // ключи карточек сохраняем, чтобы раскрытые карточки не схлопнулись
                 val keys = rules.filter { it.id > 0 }.associate { it.id to it.key }
