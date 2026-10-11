@@ -26,11 +26,38 @@ jobs:
       - name: Unit tests
         run: gradle testDebugUnitTest --no-daemon --stacktrace
 
-      - name: Build debug APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+      # Свой ключ подписи из секретов (см. «Создать ключ подписи»). Без него, например в PR из форка,
+      # собирается тестовая версия с ключом app/debug.keystore.
+      - name: Prepare signing key
+        id: key
+        env:
+          KS: ${{ secrets.SIGNING_KEYSTORE }}
+          PW: ${{ secrets.SIGNING_PASSWORD }}
+        run: |
+          if [ -n "$KS" ] && [ -n "$PW" ]; then
+            echo "$KS" | base64 -d > "$RUNNER_TEMP/release.p12"
+            echo "file=$RUNNER_TEMP/release.p12" >> "$GITHUB_OUTPUT"
+          else
+            echo "Ключа подписи нет в секретах: будет тестовая сборка"
+          fi
 
-      - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk Reminder.apk
+      - name: Build APK
+        env:
+          SIGNING_KEYSTORE_FILE: ${{ steps.key.outputs.file }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+        run: |
+          if [ -n "$SIGNING_KEYSTORE_FILE" ]; then
+            gradle assembleRelease --no-daemon --stacktrace
+            cp app/build/outputs/apk/release/app-release.apk Reminder.apk
+          else
+            # проверяем, что подписанная сборка тоже собирается: одноразовым ключом, результат выбрасывается
+            keytool -genkeypair -keystore "$RUNNER_TEMP/check.p12" -storetype PKCS12 -alias reminder \
+              -keyalg RSA -keysize 2048 -validity 1 -storepass checkcheck -keypass checkcheck -dname "CN=check" -noprompt
+            SIGNING_KEYSTORE_FILE="$RUNNER_TEMP/check.p12" SIGNING_PASSWORD=checkcheck gradle assembleRelease --no-daemon --stacktrace
+            rm -rf "$RUNNER_TEMP/check.p12" app/build/outputs/apk/release
+            gradle assembleDebug --no-daemon --stacktrace
+            cp app/build/outputs/apk/debug/app-debug.apk Reminder.apk
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
@@ -43,5 +70,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: Напоминалка, сборка ${{ github.run_number }}
+          name: Напоминалка, сборка ${{ github.run_number }}${{ steps.key.outputs.file == '' && ' (тестовый ключ)' || '' }}
           files: Reminder.apk

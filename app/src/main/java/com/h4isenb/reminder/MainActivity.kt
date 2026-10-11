@@ -20,6 +20,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.toArgb
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 
 /** Состояние разрешений для вкладки «Настройки». */
 data class PermState(
@@ -37,6 +39,8 @@ class MainActivity : ComponentActivity() {
     private var perms by mutableStateOf(PermState())
     private var keyboardOpen by mutableStateOf(false)
     private var soundTitle by mutableStateOf("")
+    /** Напоминания из принятого кода, ждут подтверждения «Добавить» / «Заменить». */
+    private var pendingImport by mutableStateOf<List<Rule>?>(null)
 
     private var preview: Ringtone? = null
     private var permStep = 0
@@ -61,6 +65,13 @@ class MainActivity : ComponentActivity() {
         if (res.resultCode == RESULT_OK && res.data != null) handleSound(res.data!!)
     }
 
+    private val scanLauncher = registerForActivityResult(ScanContract()) { res ->
+        res.contents?.let { tryImport(it) }
+    }
+    private val imageLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) importFromImage(uri)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         dark = Store.isDark(this)
         super.onCreate(savedInstanceState)
@@ -76,6 +87,9 @@ class MainActivity : ComponentActivity() {
                     keyboardOpen = keyboardOpen,
                     soundTitle = soundTitle,
                     actions = actions,
+                    pendingImport = pendingImport,
+                    onImport = { replace -> confirmImport(replace) },
+                    onImportCancel = { pendingImport = null },
                 )
             }
         }
@@ -94,7 +108,10 @@ class MainActivity : ComponentActivity() {
         Scheduler.scheduleNext(this)
         refreshPerms()
         // При первом открытии (и при каждом новом запуске) сразу просим недостающие разрешения
-        if (savedInstanceState == null) root.post { startPermissionChain() }
+        if (savedInstanceState == null) {
+            root.post { startPermissionChain() }
+            handleShared(intent)
+        }
     }
 
     private fun applyBars() {
@@ -116,6 +133,59 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleDoneIntent(intent)
+        handleShared(intent)
+    }
+
+    // =====================================================================
+    // обмен напоминаниями
+    // =====================================================================
+
+    /** Код прислали через «Поделиться» из другого приложения: текстом или картинкой с QR. */
+    private fun handleShared(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND) return
+        val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+        @Suppress("DEPRECATION")
+        val image: Uri? = intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        intent.action = null // чтобы при повороте экрана не импортировать ещё раз
+        when {
+            text != null && RuleCodec.find(text) != null -> tryImport(text)
+            image != null -> importFromImage(image)
+            else -> toast("В присланном нет кода напоминаний")
+        }
+    }
+
+    private fun tryImport(text: String) {
+        try {
+            pendingImport = RuleCodec.decode(text)
+        } catch (e: RuleCodec.BadCode) {
+            toast(e.message ?: "Не удалось прочитать код")
+        }
+    }
+
+    private fun importFromImage(uri: Uri) {
+        val text = QrCodes.decode(this, uri)
+        if (text == null) toast("На картинке не найден QR-код") else tryImport(text)
+    }
+
+    private fun confirmImport(replace: Boolean) {
+        val list = pendingImport ?: return
+        pendingImport = null
+        val n = vm.importRules(list, replace)
+        when {
+            n == 0 -> toast("Нет места: уже ${MainViewModel.MAX_RULES} напоминаний")
+            n < list.size -> toast("Добавлено $n из ${list.size}: больше ${MainViewModel.MAX_RULES} нельзя")
+            else -> toast("Добавлено: $n")
+        }
+        if (n > 0 && list.any { it.isAlarm } && !Perms.fullScreenOk(this)) askFullScreen()
+    }
+
+    private fun scanQr() {
+        val o = ScanOptions()
+            .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+            .setPrompt("Наведите камеру на QR-код с напоминаниями")
+            .setBeepEnabled(false)
+            .setOrientationLocked(false)
+        scanLauncher.launch(o)
     }
 
     /** Тап по уведомлению с повторами означает «увидел»: остальные повторы отменяются. */
@@ -172,7 +242,20 @@ class MainActivity : ComponentActivity() {
                 }
             },
             toast = { toast(it) },
-            version = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "",
+            scanQr = { scanQr() },
+            importImage = {
+                try {
+                    imageLauncher.launch("image/*")
+                } catch (e: Exception) {
+                    toast("Не удалось открыть галерею")
+                }
+            },
+            importText = { tryImport(it) },
+            shareImage = { bmp, caption -> runCatching { QrCodes.shareImage(this, bmp, caption) }.onFailure { toast("Не удалось отправить") } },
+            shareText = { runCatching { QrCodes.shareText(this, it) }.onFailure { toast("Не удалось отправить") } },
+            version = (runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "") +
+                // тестовая сборка подписана открытым ключом: её не стоит раздавать коллегам
+                if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) " (тестовая сборка)" else "",
         )
     }
 
@@ -397,5 +480,10 @@ class MainActions(
     val testAlarm: () -> Unit,
     val openAppSettings: () -> Unit,
     val toast: (String) -> Unit,
+    val scanQr: () -> Unit,
+    val importImage: () -> Unit,
+    val importText: (String) -> Unit,
+    val shareImage: (android.graphics.Bitmap, String) -> Unit,
+    val shareText: (String) -> Unit,
     val version: String,
 )

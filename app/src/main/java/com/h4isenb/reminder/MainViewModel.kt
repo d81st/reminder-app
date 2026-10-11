@@ -57,6 +57,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         persist()
     }
 
+    /**
+     * Импорт напоминаний из кода. replace = заменить все свои, иначе добавить к своим (сколько поместится).
+     * Возвращает, сколько напоминаний добавлено.
+     */
+    fun importRules(imported: List<Rule>, replace: Boolean): Int {
+        val base = if (replace) emptyList() else rules
+        val room = (MAX_RULES - base.size).coerceAtLeast(0)
+        // новые карточки: без id и со своими ключами, мелодия — стандартная
+        val add = imported.take(room).map { it.copy(id = 0, key = Rule.newKey(), alarmSound = "") }
+        rules = base + add
+        persist()
+        return add.size
+    }
+
     private fun scheduleSave() {
         dirty = true
         saveJob?.cancel()

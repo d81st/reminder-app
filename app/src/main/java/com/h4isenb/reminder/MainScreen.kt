@@ -6,6 +6,7 @@ import android.app.TimePickerDialog
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -76,8 +77,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -86,6 +90,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -100,9 +106,20 @@ private val ru = Locale("ru")
 // =====================================================================
 
 @Composable
-fun MainScreen(vm: MainViewModel, perms: PermState, keyboardOpen: Boolean, soundTitle: String, actions: MainActions) {
+fun MainScreen(
+    vm: MainViewModel,
+    perms: PermState,
+    keyboardOpen: Boolean,
+    soundTitle: String,
+    actions: MainActions,
+    pendingImport: List<Rule>?,
+    onImport: (replace: Boolean) -> Unit,
+    onImportCancel: () -> Unit,
+) {
     val p = LocalPalette.current
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    var showExport by rememberSaveable { mutableStateOf(false) }
+    var showPaste by rememberSaveable { mutableStateOf(false) }
     BackHandler(enabled = tab != 0) { tab = 0 }
     LaunchedEffect(tab) {
         if (tab == 1) vm.loadLog()
@@ -111,13 +128,20 @@ fun MainScreen(vm: MainViewModel, perms: PermState, keyboardOpen: Boolean, sound
     val scope = rememberCoroutineScope()
     val expanded = remember { mutableStateMapOf<Long, Boolean>() }
 
+    if (showExport) ExportDialog(vm.rules, actions) { showExport = false }
+    if (showPaste) PasteDialog(onDismiss = { showPaste = false }) { text ->
+        showPaste = false
+        actions.importText(text)
+    }
+    pendingImport?.let { ImportDialog(it, vm.rules.size, onImport, onImportCancel) }
+
     Column(Modifier.fillMaxSize().background(p.bg)) {
         Header(vm, perms, actions)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (tab) {
                 0 -> RemindersPage(vm, listState, expanded, actions)
                 1 -> LogPage(vm)
-                else -> SettingsPage(perms, soundTitle, actions)
+                else -> SettingsPage(perms, soundTitle, actions, onExport = { showExport = true }, onPaste = { showPaste = true })
             }
             if (tab == 0 && !keyboardOpen) {
                 FloatingActionButton(
@@ -578,13 +602,25 @@ private fun LogPage(vm: MainViewModel) {
 // =====================================================================
 
 @Composable
-private fun SettingsPage(perms: PermState, soundTitle: String, actions: MainActions) {
+private fun SettingsPage(perms: PermState, soundTitle: String, actions: MainActions, onExport: () -> Unit, onPaste: () -> Unit) {
     val p = LocalPalette.current
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 24.dp)
     ) {
         Section("Оформление") {
             SwitchRow("Тёмная тема", null, p.dark) { actions.toggleTheme() }
+        }
+        Section("Обмен с коллегами") {
+            Hint("Настройте расписание один раз и передайте его другим: QR-кодом с экрана, картинкой или текстом в мессенджере.")
+            Spacer(Modifier.height(10.dp))
+            PrimaryButton("Поделиться напоминаниями", Modifier.fillMaxWidth(), onExport)
+            Spacer(Modifier.height(8.dp))
+            TonalButton("Сканировать QR-код", Modifier.fillMaxWidth(), actions.scanQr)
+            Spacer(Modifier.height(8.dp))
+            Row {
+                TonalButton("Из картинки", Modifier.weight(1f).padding(end = 4.dp), actions.importImage)
+                TonalButton("Вставить текст", Modifier.weight(1f).padding(start = 4.dp), onPaste)
+            }
         }
         Section("Звук") {
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -812,4 +848,158 @@ private fun PrimaryButton(label: String, modifier: Modifier = Modifier, onClick:
         border = BorderStroke(0.dp, Color.Transparent),
         modifier = modifier.heightIn(min = 44.dp),
     ) { Text(label, fontWeight = FontWeight.Bold) }
+}
+
+// =====================================================================
+// обмен: окна экспорта и импорта
+// =====================================================================
+
+/** Краткая строка о напоминании для списков обмена. */
+private fun shortInfo(r: Rule): String {
+    val time = if (r.start == r.end) TimeMath.fmt(r.start)
+    else TimeMath.fmt(r.start) + "–" + TimeMath.fmt(r.end) + ", каждые " + r.interval + " мин"
+    return (if (r.isAlarm) "⏰ " else "") + time + " · " + Rule.daysText(r.days)
+}
+
+@Composable
+private fun DialogCard(onDismiss: () -> Unit, content: @Composable () -> Unit) {
+    val p = LocalPalette.current
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier
+                .padding(16.dp)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(p.card)
+                .verticalScroll(rememberScrollState())
+                .padding(18.dp)
+        ) { content() }
+    }
+}
+
+@Composable
+private fun ExportDialog(rules: List<Rule>, actions: MainActions, onDismiss: () -> Unit) {
+    val p = LocalPalette.current
+    val picked = remember { mutableStateMapOf<Long, Boolean>() }
+    val chosen = rules.filter { picked[it.key] != false }
+    val code = remember(chosen) { if (chosen.isEmpty()) "" else RuleCodec.encode(chosen) }
+    val bmp = remember(code) { if (code.isEmpty()) null else QrCodes.bitmap(code) }
+
+    DialogCard(onDismiss) {
+        Text("Поделиться напоминаниями", color = p.ink, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+        Hint("Коллега открывает «Настройки» → «Сканировать QR-код» и наводит камеру на экран. Мелодии будильников не передаются.")
+        Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+            when {
+                chosen.isEmpty() -> Text("Выберите хотя бы одно напоминание", color = p.muted, fontSize = 14.sp)
+                bmp == null -> Text("Слишком много для одного QR-кода. Уберите часть напоминаний или отправьте текстом.",
+                    color = Rose, fontSize = 14.sp, textAlign = TextAlign.Center)
+                else -> Image(
+                    bmp.asImageBitmap(), contentDescription = "QR-код с напоминаниями",
+                    filterQuality = FilterQuality.None,
+                    modifier = Modifier.size(260.dp).clip(RoundedCornerShape(12.dp)),
+                )
+            }
+        }
+        for (r in rules) {
+            Row(
+                Modifier.fillMaxWidth().clickable { picked[r.key] = picked[r.key] == false },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(checked = picked[r.key] != false, onCheckedChange = { picked[r.key] = it })
+                Column(Modifier.weight(1f)) {
+                    Text(r.name, color = p.ink, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(shortInfo(r), color = p.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        if (bmp != null) {
+            PrimaryButton("Отправить картинкой", Modifier.fillMaxWidth()) {
+                val caption = "QR-код с напоминаниями для «Напоминалки». В приложении: «Настройки» → «Из картинки»" +
+                    if (code.length < 900) ".\n\n$code" else "."
+                actions.shareImage(bmp, caption)
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+        if (chosen.isNotEmpty()) {
+            TonalButton("Отправить текстом", Modifier.fillMaxWidth()) {
+                actions.shareText(
+                    "Напоминания для приложения «Напоминалка». Чтобы добавить: «Поделиться» → «Напоминалка», " +
+                        "или скопируйте сообщение и в приложении нажмите «Вставить текст».\n\n$code"
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+        TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Закрыть", color = p.muted) }
+    }
+}
+
+@Composable
+private fun PasteDialog(onDismiss: () -> Unit, onImport: (String) -> Unit) {
+    val p = LocalPalette.current
+    val clipboard = LocalClipboardManager.current
+    var text by remember {
+        mutableStateOf(clipboard.getText()?.text?.takeIf { RuleCodec.find(it) != null } ?: "")
+    }
+    DialogCard(onDismiss) {
+        Text("Вставить текст", color = p.ink, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+        Hint("Вставьте присланное сообщение целиком: код начинается с «${RuleCodec.PREFIX}».")
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(
+            value = text,
+            onValueChange = { text = it },
+            placeholder = { Text(RuleCodec.PREFIX + "…") },
+            minLines = 3,
+            maxLines = 6,
+            shape = RoundedCornerShape(12.dp),
+            colors = appFieldColors(),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(10.dp))
+        Row {
+            TonalButton("Из буфера", Modifier.weight(1f).padding(end = 4.dp)) { text = clipboard.getText()?.text ?: "" }
+            PrimaryButton("Прочитать", Modifier.weight(1f).padding(start = 4.dp)) { onImport(text) }
+        }
+        TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Отмена", color = p.muted) }
+    }
+}
+
+@Composable
+private fun ImportDialog(list: List<Rule>, mine: Int, onImport: (replace: Boolean) -> Unit, onCancel: () -> Unit) {
+    val p = LocalPalette.current
+    var confirmReplace by remember { mutableStateOf(false) }
+    DialogCard(onCancel) {
+        Text(
+            "Получено: ${list.size} ${TimeMath.plural(list.size, "напоминание", "напоминания", "напоминаний")}",
+            color = p.ink, fontSize = 19.sp, fontWeight = FontWeight.Bold,
+        )
+        Spacer(Modifier.height(8.dp))
+        for (r in list) {
+            Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.padding(end = 10.dp).size(10.dp).clip(CircleShape).background(Accents[r.color.coerceIn(0, Accents.size - 1)]))
+                Column {
+                    Text(r.name, color = p.ink, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text(shortInfo(r) + if (r.enabled) "" else " · выключено", color = p.muted, fontSize = 12.sp)
+                }
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        PrimaryButton("Добавить к моим", Modifier.fillMaxWidth()) { onImport(false) }
+        if (mine > 0) {
+            Spacer(Modifier.height(8.dp))
+            if (!confirmReplace) {
+                TonalButton("Заменить все мои", Modifier.fillMaxWidth()) { confirmReplace = true }
+            } else {
+                Hint("Ваши напоминания ($mine) будут удалены и заменены полученными.")
+                Spacer(Modifier.height(6.dp))
+                Button(
+                    onClick = { onImport(true) },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Rose, contentColor = Color.White),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                ) { Text("Да, заменить", fontWeight = FontWeight.Bold) }
+            }
+        }
+        TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Отмена", color = p.muted) }
+    }
 }
