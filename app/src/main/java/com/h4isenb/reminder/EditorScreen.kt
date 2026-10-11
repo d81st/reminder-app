@@ -302,11 +302,11 @@ private fun ModeCard(title: String, hint: String, icon: ImageVector, on: Boolean
             .border(2.dp, if (on) acc else Color.Transparent, RoundedCornerShape(18.dp))
             .semantics { selected = on }
             .clickable(role = Role.RadioButton, onClick = onClick)
-            .padding(12.dp),
+            .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Icon(icon, contentDescription = null, tint = if (on) acc else p.muted, modifier = Modifier.size(22.dp))
-        Text(title, color = if (on) p.ink else p.muted, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(title, color = if (on) p.ink else p.muted, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
         Text(hint, color = p.muted, fontSize = 11.sp, lineHeight = 14.sp)
     }
 }
@@ -373,7 +373,7 @@ private fun DirOption(title: String, hint: String, on: Boolean, modifier: Modifi
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(title, color = if (on) p.ink else p.muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-        Text(hint, color = p.muted, fontSize = 11.sp, maxLines = 1)
+        Text(hint, color = p.muted, fontSize = 11.sp, lineHeight = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
 }
 
@@ -527,7 +527,7 @@ private fun Preview(r: Rule, idx: Int, allRules: List<Rule>, now: Long, acc: Col
             }
         }
         Text(Phrases.explain(r, t, doneAt), color = p.muted, fontSize = 13.sp, lineHeight = 19.sp)
-        if (n > 1 || r.isAlarm) {
+        if (n > 1) {
             Box(
                 Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(16.dp)).background(p.tint)
                     .clickable(enabled = !playing, role = Role.Button) {

@@ -625,6 +625,7 @@ fun RuleCard(
                 append(" · ")
                 append(Phrases.days(r.days))
                 if (r.lead > 0) append(" · заранее за ${r.lead} мин")
+                if (r.skipOverlap) append(" · без совпадений с другими")
             }
             Text(line, color = p.muted, fontSize = 13.sp)
         }
