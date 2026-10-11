@@ -253,7 +253,9 @@ class MainActivity : ComponentActivity() {
             importText = { tryImport(it) },
             shareImage = { bmp, caption -> runCatching { QrCodes.shareImage(this, bmp, caption) }.onFailure { toast("Не удалось отправить") } },
             shareText = { runCatching { QrCodes.shareText(this, it) }.onFailure { toast("Не удалось отправить") } },
-            version = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "",
+            version = (runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull() ?: "") +
+                // тестовая сборка подписана открытым ключом: её не стоит раздавать коллегам
+                if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) " (тестовая сборка)" else "",
         )
     }
 

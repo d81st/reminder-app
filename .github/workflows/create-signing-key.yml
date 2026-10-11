@@ -1,0 +1,50 @@
+name: Создать ключ подписи
+
+# Запускается вручную один раз: Actions → «Создать ключ подписи» → Run workflow.
+# Перед запуском создайте секрет SIGNING_PASSWORD (Settings → Secrets and variables → Actions).
+# Ключ выдаётся архивом, зашифрованным этим паролем: репозиторий публичный, и скачать артефакт
+# может любой вошедший в GitHub. Архив хранится 1 день.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Проверка секретов
+        env:
+          PW: ${{ secrets.SIGNING_PASSWORD }}
+          EXISTING: ${{ secrets.SIGNING_KEYSTORE }}
+        run: |
+          if [ -z "$PW" ]; then
+            echo "::error::Сначала создайте секрет SIGNING_PASSWORD (не короче 12 символов)"; exit 1
+          fi
+          if [ ${#PW} -lt 12 ]; then
+            echo "::error::SIGNING_PASSWORD должен быть не короче 12 символов"; exit 1
+          fi
+          # новый ключ поверх старого сломал бы обновления у всех, кто уже поставил приложение
+          if [ -n "$EXISTING" ]; then
+            echo "::error::Секрет SIGNING_KEYSTORE уже есть. Чтобы сделать новый ключ, сначала удалите его вручную"; exit 1
+          fi
+
+      - name: Создание ключа
+        env:
+          PW: ${{ secrets.SIGNING_PASSWORD }}
+        run: |
+          keytool -genkeypair -keystore release.p12 -storetype PKCS12 -alias reminder \
+            -keyalg RSA -keysize 4096 -validity 36500 \
+            -storepass "$PW" -keypass "$PW" -dname "CN=Napominalka" -noprompt
+          echo "Отпечаток сертификата (не секрет, для сверки):"
+          keytool -list -v -keystore release.p12 -storepass "$PW" | grep -E "SHA256:" || true
+          base64 -w0 release.p12 > SIGNING_KEYSTORE.txt
+          7z a -tzip -mem=AES256 -p"$PW" signing-key.zip SIGNING_KEYSTORE.txt release.p12 > /dev/null
+          rm release.p12 SIGNING_KEYSTORE.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signing-key
+          path: signing-key.zip
+          retention-days: 1
