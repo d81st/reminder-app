@@ -30,7 +30,7 @@ class ScreenshotTest {
         Rule("Тетрадь и Telegram", 9 * 60, 17 * 60, 60, false, "Запиши в тетрадь и отправь сообщение",
             id = 1, color = 0, days = Rule.WORKDAYS),
         Rule("Сообщение в Telegram", 9 * 60, 17 * 60, 30, true, "Отправь сообщение в Telegram",
-            id = 2, color = 1, days = Rule.WORKDAYS),
+            id = 2, color = 1, days = Rule.WORKDAYS, repeatCount = 3, repeatEvery = 5),
         Rule("Подъём", 7 * 60, 7 * 60, 60, false, "Доброе утро!", id = 3, kind = Rule.KIND_ALARM,
             days = Rule.WORKDAYS, challenge = Rule.CHALLENGE_MATH),
         Rule("Обед", 13 * 60, 13 * 60, 60, false, "Пора поесть", id = 4, color = 2, enabled = false),
@@ -40,7 +40,7 @@ class ScreenshotTest {
         toggleTheme = {}, askNotifications = {}, askBattery = {}, askExact = {}, askFullScreen = {},
         pickNotificationSound = {}, pickAlarmSound = {}, alarmSoundTitle = { "Стандартный будильник" },
         sendTest = {}, testAlarm = {}, openAppSettings = {}, toast = {}, scanQr = {}, importImage = {},
-        importText = {}, shareImage = { _, _ -> }, shareText = {}, version = "2.3",
+        importText = {}, shareImage = { _, _ -> }, shareText = {}, version = "2.4",
     )
 
     @Before
@@ -66,6 +66,7 @@ class ScreenshotTest {
         HomePage(
             rules = rules, loaded = true, nextByKey = next, today = TimeMath.today(rules, now), now = now,
             perms = PermState(), onToggleTheme = {}, onOpen = {}, onEnabled = { _, _ -> }, onDelete = {},
+            showTip = true,
         )
     }
 
@@ -76,8 +77,13 @@ class ScreenshotTest {
 
     @Test fun homeLight() = shot("1_home_light", false) { Home() }
     @Test fun homeDark() = shot("2_home_dark", true) { Home() }
-    @Test fun editorLight() = shot("3_editor_light", false) { Editor(0) }
-    @Test fun editorAlarmDark() = shot("4_editor_alarm_dark", true) { Editor(2) }
+    // редактор длинный: снимаем высоким экраном, чтобы был виден пример «Как это будет»
+    @Config(qualifiers = "w390dp-h1900dp-hdpi")
+    @Test fun editorQuietLight() = shot("3_editor_quiet_light", false) { Editor(0) }
+    @Config(qualifiers = "w390dp-h1900dp-hdpi")
+    @Test fun editorPersistentLight() = shot("4_editor_persistent_light", false) { Editor(1) }
+    @Config(qualifiers = "w390dp-h1900dp-hdpi")
+    @Test fun editorAlarmDark() = shot("6_editor_alarm_dark", true) { Editor(2) }
     @Test fun settingsLight() = shot("5_settings_light", false) {
         SettingsPage(PermState(notifications = false), "По умолчанию", actions, onExport = {}, onPaste = {})
     }

@@ -40,6 +40,8 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.foundation.border
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -172,6 +174,8 @@ fun MainScreen(
                     onOpen = { editing = it.key },
                     onEnabled = { r, on -> vm.update(r.key) { it.copy(enabled = on) } },
                     onDelete = onDeleted,
+                    showTip = !vm.tipHidden,
+                    onHideTip = vm::hideTip,
                 )
                 1 -> LogPage(vm)
                 else -> SettingsPage(perms, soundTitle, actions, onExport = { showExport = true }, onPaste = { showPaste = true })
@@ -287,9 +291,15 @@ fun HomePage(
     onOpen: (Rule) -> Unit,
     onEnabled: (Rule, Boolean) -> Unit,
     onDelete: (Rule) -> Unit,
+    showTip: Boolean = false,
+    onHideTip: () -> Unit = {},
 ) {
     val p = LocalPalette.current
     if (!loaded) return
+    // сегодняшние времена каждого напоминания: для полосок на карточках
+    val todayByKey = remember(today) { today.groupBy({ it.rule.key }, { it.minute }) }
+    val cal = Calendar.getInstance().apply { timeInMillis = now }
+    val nowMin = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
     LazyColumn(
         state = listState,
         // запас снизу под плавающую панель и кнопку «+»
@@ -298,7 +308,7 @@ fun HomePage(
         modifier = Modifier.fillMaxSize(),
     ) {
         item(key = "header") { TodayHeader(rules, nextByKey, now, onToggleTheme) }
-        item(key = "timeline") { DayTimeline(today, now, Modifier.padding(top = 10.dp)) }
+        if (showTip && rules.isNotEmpty()) item(key = "tip") { TipBanner(onHideTip) }
         val warn = when {
             !perms.notifications -> "Уведомления выключены. Разрешите их во вкладке «Настройки»."
             !perms.fullScreen && rules.any { it.isAlarm && it.enabled } ->
@@ -326,7 +336,7 @@ fun HomePage(
         }
         items(rules, key = { it.key }) { r ->
             SwipeToDelete(onDelete = { onDelete(r) }, modifier = Modifier.animateItem()) {
-                RuleCard(r, nextByKey[r.key], now, onOpen = { onOpen(r) }, onEnabled = { onEnabled(r, it) })
+                RuleCard(r, nextByKey[r.key], now, todayByKey[r.key].orEmpty(), nowMin, onOpen = { onOpen(r) }, onEnabled = { onEnabled(r, it) })
             }
         }
     }
@@ -377,13 +387,13 @@ private fun TodayHeader(rules: List<Rule>, nextByKey: Map<Long, TimeMath.Event>,
         }
         if (soonest == null) {
             Text(if (rules.isEmpty()) "Начнём?" else "Всё спокойно", color = p.ink, fontFamily = Unbounded,
-                fontWeight = FontWeight.Bold, fontSize = 40.sp, lineHeight = 44.sp, modifier = Modifier.padding(top = 6.dp))
+                fontWeight = FontWeight.Bold, fontSize = 32.sp, lineHeight = 36.sp, modifier = Modifier.padding(top = 4.dp))
             Text(if (rules.isEmpty()) "Добавьте первое напоминание кнопкой «+»" else "Ближайшую неделю напоминаний нет",
                 color = p.muted, fontSize = 16.sp)
         } else {
             val t = soonest.baseAt + soonest.rule.lead * TimeMath.MIN
             Text(TimeMath.countdown(t, now), color = p.ink, fontFamily = Unbounded, fontWeight = FontWeight.Bold,
-                fontSize = 40.sp, lineHeight = 44.sp, modifier = Modifier.padding(top = 6.dp))
+                fontSize = 32.sp, lineHeight = 36.sp, modifier = Modifier.padding(top = 4.dp))
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
                 Box(Modifier.size(10.dp).clip(CircleShape).background(if (soonest.rule.isAlarm) Amber else accent(soonest.rule.color, p.dark)))
                 Text(soonest.rule.name, color = p.ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
@@ -471,77 +481,154 @@ fun DayTimeline(today: List<TimeMath.Event>, now: Long, modifier: Modifier = Mod
 // карточка напоминания
 // =====================================================================
 
-/** Время коротко: «09» для целого часа, иначе «09:30». */
-private fun hm(m: Int) = if (m % 60 == 0) String.format(Locale.US, "%02d", m / 60) else TimeMath.fmt(m)
-
-private fun everyText(interval: Int) = when {
-    interval == 60 -> "каждый час"
-    interval % 60 == 0 -> "каждые ${interval / 60} ч"
-    else -> "каждые $interval мин"
-}
-
-/** Строка под названием: окно и шаг, или «раз в день». */
-internal fun scheduleText(r: Rule): String = when {
-    r.rawTimes().isEmpty() -> "нет времён: проверьте начало и конец"
-    r.start == r.end || r.rawTimes().size == 1 -> "раз в день"
-    else -> hm(r.start) + "–" + hm(r.end) + ", " + everyText(r.interval)
-}
-
-/** Подпись рядом с крупным временем: «через 12 мин», «сегодня», «завтра», «пн». */
+/** Подпись под крупным временем: «следующее · через 42 мин», «завтра», «в пятницу». */
 private fun nextLabel(r: Rule, next: TimeMath.Event?, now: Long): String {
     if (!r.enabled) return "выключено"
     if (next == null) return "не запланировано"
     val t = next.baseAt + r.lead * TimeMath.MIN
     return when {
-        sameDay(t, now) && t - now <= 60 * TimeMath.MIN -> TimeMath.countdown(t, now)
-        sameDay(t, now) -> "сегодня"
+        sameDay(t, now) && t - now <= 3 * 60 * TimeMath.MIN -> "следующее · " + TimeMath.countdown(t, now)
+        sameDay(t, now) -> "следующее · сегодня"
         sameDay(t, now + 24 * 60 * TimeMath.MIN) -> "завтра"
         else -> SimpleDateFormat("EEEE", ru).format(Date(t))
     }
 }
 
+/** Подсказка для новичка над карточками; закрывается навсегда. */
 @Composable
-fun RuleCard(r: Rule, next: TimeMath.Event?, now: Long, onOpen: () -> Unit, onEnabled: (Boolean) -> Unit) {
+private fun TipBanner(onHide: () -> Unit) {
     val p = LocalPalette.current
-    val alarm = r.isAlarm
-    val acc = if (alarm) Amber else accent(r.color, p.dark)
-    val bg = if (alarm) p.alarmCard else p.card
-    val ink = if (alarm) Color.White else p.ink
-    val muted = if (alarm) p.alarmMuted else p.muted
-    val time = TimeMath.fmt(next?.minute ?: r.start)
     Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
-            .background(bg)
-            .clickable(onClickLabel = "Изменить", onClick = onOpen)
-            .padding(start = 16.dp, end = 14.dp, top = 14.dp, bottom = 14.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(p.tint).padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        if (alarm) {
-            Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(p.alarmTile), contentAlignment = Alignment.Center) {
-                Icon(AlarmIcon, contentDescription = "Будильник", tint = Amber, modifier = Modifier.size(22.dp))
-            }
-        }
-        Column(Modifier.weight(1f).alpha(if (r.enabled) 1f else 0.55f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(time, color = acc, fontFamily = Unbounded, fontWeight = FontWeight.Bold, fontSize = 22.sp)
-                Text(nextLabel(r, next, now), color = muted, fontSize = 12.sp, maxLines = 1, modifier = Modifier.padding(bottom = 3.dp))
-            }
-            Text(r.name, color = ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(top = 4.dp)) {
-                val extra = buildString {
-                    append(if (alarm && (r.start == r.end || r.rawTimes().size == 1)) Rule.daysText(r.days) else scheduleText(r))
-                    if (alarm && r.challenge == Rule.CHALLENGE_MATH) append(" · с примером")
-                    if (!alarm && r.effectiveRepeats() > 0) append(" · ↻" + r.effectiveRepeats())
+        Text("Нажмите на карточку, чтобы изменить. Смахните влево, чтобы удалить.", color = p.tintText, fontSize = 13.sp,
+            lineHeight = 19.sp, modifier = Modifier.weight(1f))
+        Box(
+            Modifier.size(40.dp).clip(CircleShape).clickable(role = Role.Button, onClickLabel = "Скрыть подсказку", onClick = onHide),
+            contentAlignment = Alignment.Center,
+        ) { Text("×", color = p.tintText, fontSize = 20.sp) }
+    }
+}
+
+/** Метка вида напоминания: «Настойчиво · ещё 3 раза» со значком. */
+@Composable
+private fun ModeChip(r: Rule, acc: Color) {
+    val icon = when (Phrases.mode(r)) {
+        Phrases.MODE_PERSISTENT -> Icons.Filled.Refresh
+        Phrases.MODE_ALARM -> AlarmIcon
+        else -> Icons.Filled.Notifications
+    }
+    Row(
+        Modifier.heightIn(min = 28.dp).clip(RoundedCornerShape(14.dp)).background(acc.copy(alpha = 0.14f)).padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = acc, modifier = Modifier.size(14.dp))
+        Text(Phrases.modeLabel(r), color = acc, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    }
+}
+
+/** Полоски сегодняшних времён: прошедшие закрашены, следующее — обведено. */
+@Composable
+private fun TodayBars(times: List<Int>, nowMin: Int, acc: Color, lead: Int) {
+    val p = LocalPalette.current
+    val past = times.count { it - lead <= nowMin }
+    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.semantics { contentDescription = "Сегодня позади $past из ${times.size}" }) {
+        if (times.isNotEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                // больше 12 полосок не помещается: тогда каждая полоска — несколько времён
+                val bars = minOf(times.size, 12)
+                for (i in 0 until bars) {
+                    val from = i * times.size / bars
+                    val isPast = from < past
+                    val isNext = from == past || (from < past && (i + 1) * times.size / bars > past)
+                    Box(
+                        Modifier.size(width = 6.dp, height = 18.dp).clip(RoundedCornerShape(3.dp))
+                            .then(
+                                when {
+                                    isPast && !isNext -> Modifier.background(acc)
+                                    isNext -> Modifier.border(2.dp, acc, RoundedCornerShape(3.dp))
+                                    else -> Modifier.background(p.line)
+                                }
+                            )
+                    )
                 }
-                Text(extra, color = muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                if (!alarm) DayDots(r.days, acc, p.off)
             }
         }
-        AccentSwitch(r.enabled, acc, onEnabled, thumbOn = if (alarm) p.alarmCard else onAccent(p.dark))
+        Text(if (times.isEmpty()) "сегодня нет" else "сегодня $past из ${times.size}", color = p.muted, fontSize = 11.sp)
+    }
+}
+
+@Composable
+fun RuleCard(
+    r: Rule,
+    next: TimeMath.Event?,
+    now: Long,
+    todayTimes: List<Int>,
+    nowMin: Int,
+    onOpen: () -> Unit,
+    onEnabled: (Boolean) -> Unit,
+) {
+    val p = LocalPalette.current
+    val time = TimeMath.fmt(next?.minute ?: r.start)
+    val fade = if (r.enabled) 1f else 0.55f
+    if (r.isAlarm) {
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(p.alarmCard)
+                .clickable(onClickLabel = "Изменить", onClick = onOpen).padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Box(Modifier.size(48.dp).alpha(fade).clip(RoundedCornerShape(16.dp)).background(p.alarmTile), contentAlignment = Alignment.Center) {
+                Icon(AlarmIcon, contentDescription = "Будильник", tint = Amber, modifier = Modifier.size(24.dp))
+            }
+            Column(Modifier.weight(1f).alpha(fade), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Будильник · " + nextLabel(r, next, now), color = p.alarmMuted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Text(time, color = Amber, fontFamily = Unbounded, fontWeight = FontWeight.Bold, fontSize = 26.sp)
+                val extra = buildString {
+                    append(r.name)
+                    append(" · ")
+                    append(if (r.rawTimes().size <= 1) Phrases.days(r.days) else Phrases.schedule(r).lowercase())
+                    if (r.challenge == Rule.CHALLENGE_MATH) append(" · с примером")
+                }
+                Text(extra, color = p.alarmMuted, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            AccentSwitch(r.enabled, Amber, onEnabled, thumbOn = p.alarmCard)
+        }
+        return
+    }
+    val acc = accent(r.color, p.dark)
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(p.card)
+            .clickable(onClickLabel = "Изменить", onClick = onOpen).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f).alpha(fade)) { ModeChip(r, acc) }
+            AccentSwitch(r.enabled, acc, onEnabled, thumbOn = onAccent(p.dark))
+        }
+        Column(Modifier.alpha(fade), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(r.name, color = p.ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.Bottom) {
+                Column(Modifier.weight(1f)) {
+                    Text(time, color = acc, fontFamily = Unbounded, fontWeight = FontWeight.Bold, fontSize = 30.sp, lineHeight = 32.sp)
+                    Text(nextLabel(r, next, now), color = p.muted, fontSize = 12.sp, maxLines = 1, modifier = Modifier.padding(top = 2.dp))
+                }
+                TodayBars(todayTimes, nowMin, acc, r.lead)
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(p.line))
+            val line = buildString {
+                append(Phrases.schedule(r))
+                append(" · ")
+                append(Phrases.days(r.days))
+                if (r.lead > 0) append(" · заранее за ${r.lead} мин")
+                if (r.skipOverlap) append(" · без совпадений с другими")
+            }
+            Text(line, color = p.muted, fontSize = 13.sp)
+        }
     }
 }
 
