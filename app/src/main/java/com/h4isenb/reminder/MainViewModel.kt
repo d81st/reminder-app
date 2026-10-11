@@ -112,6 +112,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return r
     }
 
+    /** Перетаскивание: карточка fromKey встаёт на место карточки toKey. Порядок сохраняется через паузу. */
+    fun move(fromKey: Long, toKey: Long) {
+        val from = rules.indexOfFirst { it.key == fromKey }
+        val to = rules.indexOfFirst { it.key == toKey }
+        if (from < 0 || to < 0 || from == to) return
+        rules = rules.toMutableList().apply { add(to, removeAt(from)) }
+        scheduleSave()
+    }
+
     fun delete(key: Long): Deleted? {
         val i = rules.indexOfFirst { it.key == key }
         if (i < 0) return null

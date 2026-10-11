@@ -31,7 +31,12 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -181,6 +186,7 @@ fun MainScreen(
                     onHideTip = vm::hideTip,
                     pausedUntil = vm.pausedUntil,
                     onPause = vm::setPause,
+                    onMove = vm::move,
                 )
                 1 -> LogPage(vm)
                 else -> SettingsPage(perms, soundTitle, actions, onExport = { showExport = true }, onPaste = { showPaste = true })
@@ -300,8 +306,16 @@ fun HomePage(
     onHideTip: () -> Unit = {},
     pausedUntil: Long = 0L,
     onPause: (Long) -> Unit = {},
+    onMove: (Long, Long) -> Unit = { _, _ -> },
 ) {
     val p = LocalPalette.current
+    val haptics = LocalHapticFeedback.current
+    // карточки переставляются долгим нажатием; у прочих строк списка ключи-строки, их не трогаем
+    val reorder = rememberReorderableLazyListState(listState) { from, to ->
+        val f = from.key as? Long
+        val t = to.key as? Long
+        if (f != null && t != null) onMove(f, t)
+    }
     if (!loaded) return
     // сегодняшние времена каждого напоминания: для полосок на карточках
     val todayByKey = remember(today) { today.groupBy({ it.rule.key }, { it.minute }) }
@@ -342,9 +356,23 @@ fun HomePage(
                     textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 24.dp))
             }
         }
-        items(rules, key = { it.key }) { r ->
-            SwipeToDelete(onDelete = { onDelete(r) }, modifier = Modifier.animateItem()) {
-                RuleCard(r, nextByKey[r.key], now, todayByKey[r.key].orEmpty(), nowMin, onOpen = { onOpen(r) }, onEnabled = { onEnabled(r, it) })
+        itemsIndexed(rules, key = { _, r -> r.key }) { i, r ->
+            ReorderableItem(reorder, key = r.key) { dragging ->
+                val lift by animateDpAsState(if (dragging) 10.dp else 0.dp, label = "lift")
+                // для экранного диктора: те же перестановки без перетаскивания
+                val actions = buildList {
+                    if (i > 0) add(CustomAccessibilityAction("Переместить выше") { onMove(r.key, rules[i - 1].key); true })
+                    if (i < rules.size - 1) add(CustomAccessibilityAction("Переместить ниже") { onMove(r.key, rules[i + 1].key); true })
+                }
+                SwipeToDelete(
+                    onDelete = { onDelete(r) },
+                    modifier = Modifier
+                        .shadow(lift, RoundedCornerShape(22.dp))
+                        .semantics { customActions = actions }
+                        .longPressDraggableHandle(onDragStarted = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) }),
+                ) {
+                    RuleCard(r, nextByKey[r.key], now, todayByKey[r.key].orEmpty(), nowMin, onOpen = { onOpen(r) }, onEnabled = { onEnabled(r, it) })
+                }
             }
         }
     }
@@ -569,7 +597,7 @@ private fun TipBanner(onHide: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("Нажмите на карточку, чтобы изменить. Смахните влево, чтобы удалить.", color = p.tintText, fontSize = 13.sp,
+        Text("Нажмите на карточку, чтобы изменить. Удерживайте, чтобы перетащить. Смахните влево, чтобы удалить.", color = p.tintText, fontSize = 13.sp,
             lineHeight = 19.sp, modifier = Modifier.weight(1f))
         Box(
             Modifier.size(40.dp).clip(CircleShape).clickable(role = Role.Button, onClickLabel = "Скрыть подсказку", onClick = onHide),
