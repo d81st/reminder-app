@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
@@ -117,11 +119,12 @@ fun RuleEditor(
             WhenAndDays(r, idx, allRules, acc, onChange)
 
             SectionTitle("Как напоминать")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // карточки одной высоты: по самой высокой
+            Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ModeCard("Тихо", "одно уведомление", Icons.Filled.Notifications, mode == Phrases.MODE_QUIET, accent(r.color, p.dark), Modifier.weight(1f)) {
                     onChange { it.copy(kind = Rule.KIND_NOTIFY, repeatCount = 0) }
                 }
-                ModeCard("Настойчиво", "повторит, пока не нажмёте «Готово»", Icons.Filled.Refresh, mode == Phrases.MODE_PERSISTENT,
+                ModeCard("Настойчиво", "повторит до «Готово»", Icons.Filled.Refresh, mode == Phrases.MODE_PERSISTENT,
                     accent(r.color, p.dark), Modifier.weight(1f)) {
                     onChange {
                         it.copy(kind = Rule.KIND_NOTIFY, repeatCount = if (it.repeatCount > 0) it.repeatCount else 3,
@@ -296,7 +299,8 @@ private fun ModeCard(title: String, hint: String, icon: ImageVector, on: Boolean
     val p = LocalPalette.current
     Column(
         modifier
-            .heightIn(min = 118.dp)
+            .fillMaxHeight()
+            .heightIn(min = 104.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(p.card)
             .border(2.dp, if (on) acc else Color.Transparent, RoundedCornerShape(18.dp))
@@ -306,7 +310,8 @@ private fun ModeCard(title: String, hint: String, icon: ImageVector, on: Boolean
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Icon(icon, contentDescription = null, tint = if (on) acc else p.muted, modifier = Modifier.size(22.dp))
-        Text(title, color = if (on) p.ink else p.muted, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+        Text(title, color = if (on) p.ink else p.muted, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false,
+            overflow = TextOverflow.Ellipsis)
         Text(hint, color = p.muted, fontSize = 11.sp, lineHeight = 14.sp)
     }
 }

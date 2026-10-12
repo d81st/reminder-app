@@ -9,6 +9,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -109,6 +111,9 @@ private val AppTypography = Typography().let { t ->
     )
 }
 
+/** Во сколько раз текст приложения мельче системного. */
+const val TEXT_SCALE = 0.9f
+
 @Composable
 fun ReminderTheme(dark: Boolean, content: @Composable () -> Unit) {
     val p = palette(dark)
@@ -131,7 +136,9 @@ fun ReminderTheme(dark: Boolean, content: @Composable () -> Unit) {
             primaryContainer = p.tint, onPrimaryContainer = p.tintText,
         )
     }
-    CompositionLocalProvider(LocalPalette provides p) {
+    // весь текст чуть мельче системного размера; настройка размера шрифта в системе по-прежнему действует
+    val d = LocalDensity.current
+    CompositionLocalProvider(LocalPalette provides p, LocalDensity provides Density(d.density, d.fontScale * TEXT_SCALE)) {
         MaterialTheme(colorScheme = scheme, typography = AppTypography, content = content)
     }
 }

@@ -10,6 +10,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.util.Calendar
@@ -66,7 +67,7 @@ class ScreenshotTest {
         val next = TimeMath.nextByRule(rules, maxOf(now, pausedUntil)).entries.associate { (i, e) -> rules[i].key to e }
         HomePage(
             rules = rules, loaded = true, nextByKey = next, today = TimeMath.today(rules, now), now = now,
-            perms = PermState(), onToggleTheme = {}, onOpen = {}, onEnabled = { _, _ -> }, onDelete = {},
+            perms = PermState(), onToggleTheme = {}, onOpen = {}, onEnabled = { _, _ -> },
             showTip = pausedUntil == 0L, pausedUntil = pausedUntil,
         )
     }
@@ -86,6 +87,12 @@ class ScreenshotTest {
     @Test fun editorPersistentLight() = shot("4_editor_persistent_light", false) { Editor(1) }
     @Config(qualifiers = "w390dp-h1900dp-hdpi")
     @Test fun editorAlarmDark() = shot("6_editor_alarm_dark", true) { Editor(2) }
+    // крупный шрифт в системе: три карточки «Как напоминать» должны остаться ровными
+    @Config(qualifiers = "w390dp-h1900dp-hdpi")
+    @Test fun editorBigFontDark() {
+        RuntimeEnvironment.setFontScale(1.3f)
+        shot("8_editor_bigfont_dark", true) { Editor(1) }
+    }
     @Test fun settingsLight() = shot("5_settings_light", false) {
         SettingsPage(PermState(notifications = false), "По умолчанию", actions, onExport = {}, onPaste = {})
     }

@@ -58,11 +58,8 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -181,7 +178,6 @@ fun MainScreen(
                     onToggleTheme = actions.toggleTheme,
                     onOpen = { editing = it.key },
                     onEnabled = { r, on -> vm.update(r.key) { it.copy(enabled = on) } },
-                    onDelete = onDeleted,
                     showTip = !vm.tipHidden,
                     onHideTip = vm::hideTip,
                     pausedUntil = vm.pausedUntil,
@@ -301,7 +297,6 @@ fun HomePage(
     onToggleTheme: () -> Unit,
     onOpen: (Rule) -> Unit,
     onEnabled: (Rule, Boolean) -> Unit,
-    onDelete: (Rule) -> Unit,
     showTip: Boolean = false,
     onHideTip: () -> Unit = {},
     pausedUntil: Long = 0L,
@@ -364,10 +359,9 @@ fun HomePage(
                     if (i > 0) add(CustomAccessibilityAction("Переместить выше") { onMove(r.key, rules[i - 1].key); true })
                     if (i < rules.size - 1) add(CustomAccessibilityAction("Переместить ниже") { onMove(r.key, rules[i + 1].key); true })
                 }
-                SwipeToDelete(
-                    onDelete = { onDelete(r) },
-                    modifier = Modifier
-                        .shadow(lift, RoundedCornerShape(22.dp))
+                Box(
+                    Modifier
+                        .shadow(lift, RoundedCornerShape(24.dp))
                         .semantics { customActions = actions }
                         .longPressDraggableHandle(onDragStarted = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) }),
                 ) {
@@ -376,31 +370,6 @@ fun HomePage(
             }
         }
     }
-}
-
-@Composable
-private fun SwipeToDelete(onDelete: () -> Unit, modifier: Modifier, content: @Composable () -> Unit) {
-    val p = LocalPalette.current
-    val state = rememberSwipeToDismissBoxState(confirmValueChange = { v ->
-        if (v == SwipeToDismissBoxValue.EndToStart) {
-            onDelete()
-            true
-        } else {
-            false
-        }
-    })
-    SwipeToDismissBox(
-        state = state,
-        enableDismissFromStartToEnd = false,
-        modifier = modifier,
-        backgroundContent = {
-            Box(
-                Modifier.fillMaxSize().clip(RoundedCornerShape(22.dp)).background(if (p.dark) Color(0xFF4C1D2B) else Color(0xFFFFE4E8))
-                    .padding(horizontal = 22.dp),
-                contentAlignment = Alignment.CenterEnd,
-            ) { Text("Удалить", color = if (p.dark) Color(0xFFFDA4AF) else Rose, fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
-        },
-    ) { content() }
 }
 
 /** Дата, тема и крупно — сколько осталось до ближайшего напоминания. */
@@ -597,7 +566,7 @@ private fun TipBanner(onHide: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("Нажмите на карточку, чтобы изменить. Удерживайте, чтобы перетащить. Смахните влево, чтобы удалить.", color = p.tintText, fontSize = 13.sp,
+        Text("Нажмите на карточку, чтобы изменить или удалить. Удерживайте, чтобы перетащить.", color = p.tintText, fontSize = 13.sp,
             lineHeight = 19.sp, modifier = Modifier.weight(1f))
         Box(
             Modifier.size(40.dp).clip(CircleShape).clickable(role = Role.Button, onClickLabel = "Скрыть подсказку", onClick = onHide),
