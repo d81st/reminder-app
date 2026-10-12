@@ -60,6 +60,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -310,8 +311,14 @@ private fun ModeCard(title: String, hint: String, icon: ImageVector, on: Boolean
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Icon(icon, contentDescription = null, tint = if (on) acc else p.muted, modifier = Modifier.size(22.dp))
-        Text(title, color = if (on) p.ink else p.muted, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false,
-            overflow = TextOverflow.Ellipsis)
+        // при крупном системном шрифте заголовок уменьшается, пока не поместится в карточку целиком
+        var titleSize by remember { mutableStateOf(13.sp) }
+        var fits by remember { mutableStateOf(false) }
+        Text(title, color = if (on) p.ink else p.muted, fontSize = titleSize, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false,
+            modifier = Modifier.drawWithContent { if (fits) drawContent() },
+            onTextLayout = { res ->
+                if (res.hasVisualOverflow && titleSize.value > 8f) titleSize = (titleSize.value * 0.92f).sp else fits = true
+            })
         Text(hint, color = p.muted, fontSize = 11.sp, lineHeight = 14.sp)
     }
 }
