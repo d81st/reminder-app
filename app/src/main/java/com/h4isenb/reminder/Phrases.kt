@@ -26,7 +26,7 @@ object Phrases {
     fun schedule(r: Rule): String {
         val t = r.rawTimes()
         if (t.isEmpty()) return "Нет времён: «до» раньше, чем «с»"
-        if (t.size == 1) return "Раз в день в " + TimeMath.fmt(t[0])
+        if (t.size == 1) return (if (r.isDated) "В " else "Раз в день в ") + TimeMath.fmt(t[0])
         val every = when {
             r.interval == 60 -> "Каждый час"
             r.interval % 60 == 0 -> "Каждые ${r.interval / 60} ч"
@@ -43,6 +43,22 @@ object Phrases {
         0 -> "ни в один день"
         else -> "по " + (0..6).filter { days and (1 shl it) != 0 }.joinToString(", ") { Rule.DAY_SHORT[it].lowercase(Locale("ru")) }
     }
+
+    private val MONTHS = listOf("января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября",
+        "октября", "ноября", "декабря")
+
+    /** «ср, 15 октября»; год — только если не текущий: «пт, 8 января 2027». */
+    fun date(ymd: Int, todayYmd: Int): String {
+        val y = ymd / 10000
+        val c = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+        c.clear()
+        c.set(y, ymd / 100 % 100 - 1, ymd % 100)
+        val wd = Rule.DAY_SHORT[Rule.weekdayOf(c.get(java.util.Calendar.DAY_OF_WEEK))].lowercase(Locale("ru"))
+        return "$wd, ${ymd % 100} ${MONTHS[ymd / 100 % 100 - 1]}" + if (y != todayYmd / 10000) " $y" else ""
+    }
+
+    /** Дни напоминания: «по будням» или, для разового, «ср, 15 октября». */
+    fun days(r: Rule, todayYmd: Int): String = if (r.isDated) date(r.date, todayYmd) else days(r.days)
 
     /** Метка на карточке: «Тихо · одно уведомление», «Настойчиво · ещё 3 раза», «Будильник». */
     fun modeLabel(r: Rule): String = when (mode(r)) {

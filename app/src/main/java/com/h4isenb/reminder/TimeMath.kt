@@ -100,16 +100,17 @@ object TimeMath {
      * Времена напоминания с учётом «не повторять время другого напоминания».
      * weekday: день недели (0 = понедельник), тогда учитываются только напоминания, работающие в этот день,
      * и для выключенного в этот день напоминания времён нет. null = без учёта дней (для подписей в карточке).
+     * ymd: дата этого дня (ГГГГММДД) для разовых напоминаний; null = разовые считаются работающими.
      */
-    fun times(rules: List<Rule>, idx: Int, weekday: Int? = null): List<Int> {
+    fun times(rules: List<Rule>, idx: Int, weekday: Int? = null, ymd: Int? = null): List<Int> {
         val r = rules[idx]
-        if (weekday != null && !r.onDay(weekday)) return emptyList()
+        if (weekday != null && !r.activeOn(weekday, ymd)) return emptyList()
         val t = r.rawTimes()
         if (!r.skipOverlap) return t
         val other = HashSet<Int>()
         for (i in rules.indices) {
             val o = rules[i]
-            if (i != idx && o.enabled && !o.skipOverlap && (weekday == null || o.onDay(weekday))) other.addAll(o.rawTimes())
+            if (i != idx && o.enabled && !o.skipOverlap && (weekday == null || o.activeOn(weekday, ymd))) other.addAll(o.rawTimes())
         }
         return t.filter { it !in other }
     }
@@ -129,8 +130,14 @@ object TimeMath {
         val out = ArrayList<Event>()
         if (toIncl <= fromExcl) return out
 
-        // времена каждого напоминания по дням недели: [день][напоминание]
-        val byDay = (0..6).map { wd -> rules.indices.map { i -> if (rules[i].enabled) times(rules, i, wd) else emptyList() } }
+        // времена каждого напоминания по дням: [напоминание]. Обычные дни недели повторяются, поэтому считаются один раз;
+        // день, на который выпадает разовое напоминание, считается отдельно
+        val dates = rules.filter { it.enabled && it.isDated }.map { it.date }.toSet()
+        val byDay = HashMap<Long, List<List<Int>>>()
+        fun timesOn(wd: Int, ymd: Int): List<List<Int>> {
+            val k = if (ymd in dates) ymd * 10L + wd else wd.toLong()
+            return byDay.getOrPut(k) { rules.indices.map { i -> if (rules[i].enabled) times(rules, i, wd, ymd) else emptyList() } }
+        }
 
         val day = Calendar.getInstance(tz)
         day.timeInMillis = fromExcl
@@ -144,7 +151,7 @@ object TimeMath {
         var guard = 0
         // Серия ДО времени может начаться раньше своих суток, поэтому идём дальше конца окна на REACH
         while (day.timeInMillis - REACH <= toIncl && guard++ < 60) {
-            val all = byDay[Rule.weekdayOf(day.get(Calendar.DAY_OF_WEEK))]
+            val all = timesOn(Rule.weekdayOf(day.get(Calendar.DAY_OF_WEEK)), Rule.ymd(day))
             for (i in rules.indices) {
                 val r = rules[i]
                 val reps = r.effectiveRepeats()
@@ -188,7 +195,37 @@ object TimeMath {
         for (e in events(rules, now, now + 8L * 24 * 60 * MIN, tz)) {
             if (e.repeat == 0 && e.index !in out) out[e.index] = e
         }
+        // разовые напоминания могут быть и дальше недели: считаем только их день
+        for (i in rules.indices) {
+            val r = rules[i]
+            if (i in out || !r.enabled || !r.isDated) continue
+            val (from, to) = dayWindow(r.date, now, tz) ?: continue
+            events(rules, from, to, tz).firstOrNull { it.index == i && it.repeat == 0 }?.let { out[i] = it }
+        }
         return out
+    }
+
+    /**
+     * Ближайшее уведомление после fromExcl (с повторами и с учётом «Готово»). Сначала смотрим ближайшие 36 часов,
+     * потом неделю (обычные напоминания повторяются каждую неделю), потом дни разовых напоминаний.
+     */
+    fun firstEvent(rules: List<Rule>, fromExcl: Long, tz: TimeZone = TimeZone.getDefault(), done: Map<String, Long> = emptyMap()): Event? {
+        events(rules, fromExcl, fromExcl + 36 * 60 * MIN, tz, done).firstOrNull()?.let { return it }
+        events(rules, fromExcl, fromExcl + 8L * 24 * 60 * MIN, tz, done).firstOrNull()?.let { return it }
+        return rules.filter { it.enabled && it.isDated }.map { it.date }.distinct().sorted().firstNotNullOfOrNull { d ->
+            dayWindow(d, fromExcl, tz)?.let { (from, to) -> events(rules, from, to, tz, done).firstOrNull() }
+        }
+    }
+
+    /**
+     * Промежуток, в котором лежат все уведомления дня ГГГГММДД (серии могут начаться раньше полуночи
+     * или закончиться после неё), но не раньше from. null — день уже целиком прошёл.
+     */
+    private fun dayWindow(ymd: Int, from: Long, tz: TimeZone): Pair<Long, Long>? {
+        val start = Rule.midnightOf(ymd, tz)
+        val end = start + 24 * 60 * MIN + REACH
+        if (end <= from) return null
+        return maxOf(from, start - REACH) to end
     }
 
     /**

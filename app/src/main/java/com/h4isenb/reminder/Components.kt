@@ -48,6 +48,10 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.SelectableDates
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
@@ -402,6 +406,29 @@ internal fun TimePickDialog(minutes: Int, onDismiss: () -> Unit, onPick: (Int) -
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
         text = { TimePicker(st) },
     )
+}
+
+/** Выбор даты (ГГГГММДД); дни раньше minYmd выбрать нельзя. */
+@Composable
+internal fun DatePickDialog(ymd: Int, minYmd: Int, onDismiss: () -> Unit, onPick: (Int) -> Unit) {
+    // DatePicker работает с полуночью по UTC
+    val utc = java.util.TimeZone.getTimeZone("UTC")
+    val minMs = Rule.midnightOf(minYmd, utc)
+    val st = rememberDatePickerState(
+        initialSelectedDateMillis = Rule.midnightOf(maxOf(ymd, minYmd), utc),
+        yearRange = minYmd / 10000..minYmd / 10000 + 5,
+        selectableDates = object : SelectableDates {
+            override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis >= minMs
+            override fun isSelectableYear(year: Int) = year >= minYmd / 10000
+        },
+    )
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = { st.selectedDateMillis?.let { onPick(Rule.ymd(it, utc)) } ?: onDismiss() }) { Text("Готово") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    ) { DatePicker(st, showModeToggle = false) }
 }
 
 /** Номер шага в редакторе и его название. */

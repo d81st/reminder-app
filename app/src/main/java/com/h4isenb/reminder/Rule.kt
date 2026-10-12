@@ -24,13 +24,21 @@ data class Rule(
     val snoozeMin: Int = 5,        // «Отложить» на столько минут
     val challenge: Int = CHALLENGE_NONE,
     val gradual: Boolean = true,   // громкость будильника нарастает
+    /** Разовое напоминание: только в этот день, ГГГГММДД (20261015). 0 = по дням недели (days). */
+    val date: Int = 0,
     /** Ключ карточки в интерфейсе: не меняется, когда новое напоминание получает id при сохранении. */
     val key: Long = if (id > 0) id else nextKey(),
 ) {
     val isAlarm: Boolean get() = kind == KIND_ALARM
 
-    /** Работает ли напоминание в этот день недели (0 = понедельник ... 6 = воскресенье). */
+    /** Разовое: на одну дату, а не по дням недели. */
+    val isDated: Boolean get() = date != 0
+
+    /** Отмечен ли день недели (0 = понедельник ... 6 = воскресенье). Для разового дни недели не действуют: см. activeOn. */
     fun onDay(weekday: Int): Boolean = days and (1 shl weekday) != 0
+
+    /** Работает ли напоминание в этот день: weekday — день недели, ymd — дата ГГГГММДД (null = любая). */
+    fun activeOn(weekday: Int, ymd: Int?): Boolean = if (isDated) ymd == null || ymd == date else onDay(weekday)
 
     /** Все времена окна без учёта других напоминаний. */
     fun rawTimes(): List<Int> {
@@ -74,6 +82,36 @@ data class Rule(
 
         /** День недели из Calendar.DAY_OF_WEEK (1 = воскресенье) в индекс 0 = понедельник ... 6 = воскресенье. */
         fun weekdayOf(calendarDow: Int): Int = (calendarDow + 5) % 7
+
+        /** Дата ГГГГММДД дня, в который попадает момент ms. */
+        fun ymd(ms: Long, tz: java.util.TimeZone = java.util.TimeZone.getDefault()): Int {
+            val c = java.util.Calendar.getInstance(tz)
+            c.timeInMillis = ms
+            return ymd(c)
+        }
+
+        fun ymd(c: java.util.Calendar): Int =
+            c.get(java.util.Calendar.YEAR) * 10000 + (c.get(java.util.Calendar.MONTH) + 1) * 100 + c.get(java.util.Calendar.DAY_OF_MONTH)
+
+        /** Полночь дня ГГГГММДД. */
+        fun midnightOf(ymd: Int, tz: java.util.TimeZone = java.util.TimeZone.getDefault()): Long {
+            val c = java.util.Calendar.getInstance(tz)
+            c.clear()
+            c.set(ymd / 10000, ymd / 100 % 100 - 1, ymd % 100, 0, 0, 0)
+            return c.timeInMillis
+        }
+
+        /** Есть ли такой день в календаре (для данных из кода и базы). */
+        fun validYmd(ymd: Int): Boolean {
+            val y = ymd / 10000
+            val m = ymd / 100 % 100
+            val d = ymd % 100
+            if (y !in 2000..2199 || m !in 1..12 || d < 1) return false
+            val c = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+            c.clear()
+            c.set(y, m - 1, 1)
+            return d <= c.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
+        }
 
         /** «Каждый день», «Будни», «Выходные» или список дней: «Пн, Ср, Пт». */
         fun daysText(days: Int): String = when (days and ALL_DAYS) {

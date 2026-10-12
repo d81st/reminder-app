@@ -14,6 +14,10 @@ object Templates {
         Template("Каждые 30 минут", "09:00–17:00 · будни") {
             Rule("Каждые 30 минут", 9 * 60, 17 * 60, 30, false, "Текст напоминания", days = Rule.WORKDAYS)
         },
+        Template("Один раз, на дату", "завтра в 10:00 · дату можно поменять") {
+            val tomorrow = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, 1) }
+            Rule("Не забыть", 10 * 60, 10 * 60, 60, false, "Текст напоминания", date = Rule.ymd(tomorrow))
+        },
         Template("Раз в день", "12:00 · каждый день") {
             Rule("Напоминание", 12 * 60, 12 * 60, 60, false, "Текст напоминания")
         },

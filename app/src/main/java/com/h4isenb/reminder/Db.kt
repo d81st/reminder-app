@@ -5,7 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
 /** Локальная база SQLite внутри телефона: напоминания, журнал, «Готово» для повторов и отложенные будильники. */
-class Db(c: Context) : SQLiteOpenHelper(c.applicationContext, "reminder.db", null, 5) {
+class Db(c: Context) : SQLiteOpenHelper(c.applicationContext, "reminder.db", null, 6) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -24,7 +24,8 @@ class Db(c: Context) : SQLiteOpenHelper(c.applicationContext, "reminder.db", nul
                 + "repeat_every INTEGER NOT NULL DEFAULT 5,"
                 + "repeat_count INTEGER NOT NULL DEFAULT 0,"
                 + "repeat_mode INTEGER NOT NULL DEFAULT 0,"
-                + ALARM_COLUMNS.joinToString(",") + ")"
+                + ALARM_COLUMNS.joinToString(",") + ","
+                + DATE_COLUMN + ")"
         )
         createLog(db)
         createDone(db)
@@ -50,6 +51,10 @@ class Db(c: Context) : SQLiteOpenHelper(c.applicationContext, "reminder.db", nul
             // дни недели и будильник; старые напоминания остаются уведомлениями на каждый день
             for (col in ALARM_COLUMNS) db.execSQL("ALTER TABLE rules ADD COLUMN $col")
             createSnooze(db)
+        }
+        if (oldVersion < 6) {
+            // разовые напоминания: 0 = по дням недели
+            db.execSQL("ALTER TABLE rules ADD COLUMN $DATE_COLUMN")
         }
     }
 
@@ -81,6 +86,7 @@ class Db(c: Context) : SQLiteOpenHelper(c.applicationContext, "reminder.db", nul
     }
 
     private companion object {
+        const val DATE_COLUMN = "date_ymd INTEGER NOT NULL DEFAULT 0"
         val ALARM_COLUMNS = listOf(
             "days INTEGER NOT NULL DEFAULT ${Rule.ALL_DAYS}",
             "kind INTEGER NOT NULL DEFAULT ${Rule.KIND_NOTIFY}",

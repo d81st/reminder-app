@@ -227,4 +227,67 @@ class TimeMathTest {
         assertEquals("сейчас", TimeMath.countdown(now, now))
         assertEquals("через 2 дня", TimeMath.countdown(now + 2 * 24 * 60 * TimeMath.MIN, now))
     }
+
+    // ----- разовые напоминания -----
+
+    private fun once(date: Int, id: Long = 7) = Rule("Отчёт", start = 14 * 60, end = 14 * 60, interval = 60, id = id, date = date)
+
+    @Test
+    fun datedRuleFiresOnlyOnItsDate() {
+        val r = once(20261015)
+        val ev = TimeMath.events(listOf(r), at(2026, 10, 12, 0, 0), at(2026, 10, 20, 0, 0), tz)
+        assertEquals(listOf(at(2026, 10, 15, 14, 0)), ev.map { it.at })
+    }
+
+    @Test
+    fun datedRuleIgnoresWeekdays() {
+        // 17 октября 2026 — суббота, а дни недели «будни»: разовое всё равно приходит
+        val r = once(20261017).copy(days = Rule.WORKDAYS)
+        val ev = TimeMath.events(listOf(r), at(2026, 10, 16, 0, 0), at(2026, 10, 18, 0, 0), tz)
+        assertEquals(1, ev.size)
+    }
+
+    @Test
+    fun farDatedRuleIsFound() {
+        val r = once(20261201)
+        val now = at(2026, 10, 12, 10, 0)
+        assertEquals(at(2026, 12, 1, 14, 0), TimeMath.nextByRule(listOf(r), now, tz)[0]!!.at)
+        assertEquals(at(2026, 12, 1, 14, 0), TimeMath.firstEvent(listOf(r), now, tz)!!.at)
+    }
+
+    @Test
+    fun passedDatedRuleHasNoNext() {
+        val r = once(20261010)
+        val now = at(2026, 10, 12, 10, 0)
+        assertTrue(TimeMath.nextByRule(listOf(r), now, tz).isEmpty())
+        assertEquals(null, TimeMath.firstEvent(listOf(r), now, tz))
+    }
+
+    @Test
+    fun firstEventLooksPastWeekend() {
+        // будильник по будням: с вечера пятницы следующее — утро понедельника, через 60 с лишним часов
+        val r = Rule("Подъём", 7 * 60, 7 * 60, 60, false, id = 3, kind = Rule.KIND_ALARM, days = Rule.WORKDAYS)
+        val fri = at(2026, 10, 16, 20, 0)
+        assertEquals(at(2026, 10, 19, 7, 0), TimeMath.firstEvent(listOf(r), fri, tz)!!.at)
+    }
+
+    @Test
+    fun datedRuleSkipOverlapOnlyOnItsDate() {
+        // разовое в 10:00 убирает 10:00 у «каждый час без совпадений» только в свой день
+        val hour = hourly(1).copy(skipOverlap = true)
+        val r = Rule("Звонок", 10 * 60, 10 * 60, 60, false, id = 2, date = 20261013)
+        val rules = listOf(hour, r)
+        assertTrue(10 * 60 !in TimeMath.times(rules, 0, 1, 20261013))
+        assertTrue(10 * 60 in TimeMath.times(rules, 0, 2, 20261014))
+    }
+
+    @Test
+    fun ymdHelpers() {
+        assertEquals(20261012, Rule.ymd(at(2026, 10, 12, 23, 59), tz))
+        assertEquals(at(2026, 10, 12, 0, 0), Rule.midnightOf(20261012, tz))
+        assertTrue(Rule.validYmd(20280229))
+        assertTrue(!Rule.validYmd(20270229))
+        assertTrue(!Rule.validYmd(20261301))
+        assertTrue(!Rule.validYmd(0))
+    }
 }

@@ -77,4 +77,13 @@ class RuleCodecTest {
         assertEquals(listOf(true, false), got.map { it.enabled })
         assertTrue(got[1].isAlarm)
     }
+
+    @Test
+    fun dateSurvivesAndBadDateIsDropped() {
+        val r = Rule("Отчёт", 14 * 60, 14 * 60, 60, false, "Сдать отчёт", date = 20261015)
+        assertEquals(20261015, RuleCodec.decode(RuleCodec.encode(listOf(r)))[0].date)
+        // обычные напоминания не несут даты; несуществующая дата превращается в «по дням недели»
+        assertEquals(0, RuleCodec.decode(RuleCodec.encode(listOf(r.copy(date = 0))))[0].date)
+        assertEquals(0, RuleCodec.decode(RuleCodec.encode(listOf(r.copy(date = 20261332))))[0].date)
+    }
 }

@@ -45,6 +45,7 @@ object RuleCodec {
                     .put("z", r.snoozeMin)
                     .put("ch", r.challenge)
                     .put("g", if (r.gradual) 1 else 0)
+                    .apply { if (r.isDated) put("dt", r.date) }
             )
         }
         val json = JSONObject().put("v", 1).put("r", arr).toString().toByteArray(Charsets.UTF_8)
@@ -98,6 +99,7 @@ object RuleCodec {
                     snoozeMin = o.optInt("z", 5).coerceIn(1, 60),
                     challenge = if (o.optInt("ch", 0) == Rule.CHALLENGE_MATH) Rule.CHALLENGE_MATH else Rule.CHALLENGE_NONE,
                     gradual = o.optInt("g", 1) == 1,
+                    date = o.optInt("dt", 0).let { if (Rule.validYmd(it)) it else 0 },
                 )
             )
         }

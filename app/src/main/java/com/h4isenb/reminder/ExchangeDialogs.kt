@@ -121,7 +121,7 @@ import androidx.compose.ui.text.TextStyle
 internal fun shortInfo(r: Rule): String {
     val time = if (r.start == r.end) TimeMath.fmt(r.start)
     else TimeMath.fmt(r.start) + "–" + TimeMath.fmt(r.end) + ", каждые " + r.interval + " мин"
-    return (if (r.isAlarm) "⏰ " else "") + time + " · " + Rule.daysText(r.days)
+    return (if (r.isAlarm) "⏰ " else "") + time + " · " + (if (r.isDated) Phrases.date(r.date, Rule.ymd(System.currentTimeMillis())) else Rule.daysText(r.days))
 }
 
 @Composable

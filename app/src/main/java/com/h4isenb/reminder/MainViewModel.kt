@@ -267,6 +267,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             repeatCount = r.repeatCount.coerceIn(0, 20),
             color = r.color.coerceIn(0, Accents.size - 1),
             snoozeMin = r.snoozeMin.coerceIn(1, 60),
+            date = if (Rule.validYmd(r.date)) r.date else 0,
         )
     }
 }

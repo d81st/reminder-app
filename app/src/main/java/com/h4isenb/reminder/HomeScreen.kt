@@ -547,13 +547,14 @@ fun DayTimeline(today: List<TimeMath.Event>, now: Long, modifier: Modifier = Mod
 /** Подпись под крупным временем: «следующее · через 42 мин», «завтра», «в пятницу». */
 private fun nextLabel(r: Rule, next: TimeMath.Event?, now: Long): String {
     if (!r.enabled) return "выключено"
-    if (next == null) return "не запланировано"
+    if (next == null) return if (r.isDated && r.date <= Rule.ymd(now)) "уже прошло" else "не запланировано"
     val t = next.baseAt + r.lead * TimeMath.MIN
     return when {
         sameDay(t, now) && t - now <= 3 * 60 * TimeMath.MIN -> "следующее · " + TimeMath.countdown(t, now)
         sameDay(t, now) -> "следующее · сегодня"
         sameDay(t, now + 24 * 60 * TimeMath.MIN) -> "завтра"
-        else -> SimpleDateFormat("EEEE", ru).format(Date(t))
+        t - now < 6 * 24 * 60 * TimeMath.MIN -> SimpleDateFormat("EEEE", ru).format(Date(t))
+        else -> SimpleDateFormat("d MMMM", ru).format(Date(t))
     }
 }
 
@@ -654,7 +655,8 @@ fun RuleCard(
                 val extra = buildString {
                     append(r.name)
                     append(" · ")
-                    append(if (r.rawTimes().size <= 1) Phrases.days(r.days) else Phrases.schedule(r).lowercase())
+                    append(if (r.rawTimes().size <= 1) Phrases.days(r, Rule.ymd(now)) else Phrases.schedule(r).lowercase())
+                    if (r.isDated && r.rawTimes().size > 1) append(" · " + Phrases.days(r, Rule.ymd(now)))
                     if (r.challenge == Rule.CHALLENGE_MATH) append(" · с примером")
                 }
                 Text(extra, color = p.alarmMuted, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -686,7 +688,7 @@ fun RuleCard(
             val line = buildString {
                 append(Phrases.schedule(r))
                 append(" · ")
-                append(Phrases.days(r.days))
+                append(Phrases.days(r, Rule.ymd(now)))
                 if (r.lead > 0) append(" · заранее за ${r.lead} мин")
                 if (r.skipOverlap) append(" · без совпадений с другими")
             }

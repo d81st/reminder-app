@@ -117,7 +117,7 @@ fun RuleEditor(
                 AppField(r.name, { v -> onChange { it.copy(name = v) } }, "Например, «Перерыв»", singleLine = true)
             }
 
-            WhenAndDays(r, idx, allRules, acc, onChange)
+            WhenAndDays(r, idx, allRules, now, acc, onChange)
 
             SectionTitle("Как напоминать")
             // карточки одной высоты: по самой высокой
@@ -188,7 +188,7 @@ private fun SectionTitle(s: String, trailing: String? = null) {
 // =====================================================================
 
 @Composable
-private fun WhenAndDays(r: Rule, idx: Int, allRules: List<Rule>, acc: Color, onChange: ((Rule) -> Rule) -> Unit) {
+private fun WhenAndDays(r: Rule, idx: Int, allRules: List<Rule>, now: Long, acc: Color, onChange: ((Rule) -> Rule) -> Unit) {
     val p = LocalPalette.current
     // у нового напоминания сразу открыто «Когда»
     var open by rememberSaveable(r.key) { mutableIntStateOf(if (r.id == 0L) 1 else 0) }
@@ -196,10 +196,11 @@ private fun WhenAndDays(r: Rule, idx: Int, allRules: List<Rule>, acc: Color, onC
         SummaryRow(Icons.Filled.Notifications, "Когда", Phrases.schedule(r), open == 1, acc) { open = if (open == 1) 0 else 1 }
         if (open == 1) Column(Modifier.padding(bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { WhenControls(r, idx, allRules, acc, onChange) }
         Box(Modifier.fillMaxWidth().height(1.dp).background(p.line))
-        SummaryRow(Icons.Filled.DateRange, "Дни", Phrases.days(r.days).replaceFirstChar { it.uppercase() }, open == 2, acc, dots = r.days) {
+        SummaryRow(Icons.Filled.DateRange, if (r.isDated) "Дата" else "Дни", Phrases.days(r, Rule.ymd(now)).replaceFirstChar { it.uppercase() },
+            open == 2, acc, dots = if (r.isDated) null else r.days) {
             open = if (open == 2) 0 else 2
         }
-        if (open == 2) Column(Modifier.padding(bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { DaysControls(r, acc, onChange) }
+        if (open == 2) Column(Modifier.padding(bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { DaysControls(r, now, acc, onChange) }
     }
 }
 
@@ -271,8 +272,33 @@ private fun timesSummary(t: List<Int>): String = when {
 }
 
 @Composable
-private fun DaysControls(r: Rule, acc: Color, onChange: ((Rule) -> Rule) -> Unit) {
+private fun DaysControls(r: Rule, now: Long, acc: Color, onChange: ((Rule) -> Rule) -> Unit) {
     val p = LocalPalette.current
+    val today = Rule.ymd(now)
+    val tomorrow = Rule.ymd(Calendar.getInstance().apply { timeInMillis = now; add(Calendar.DAY_OF_YEAR, 1) })
+    Segmented(listOf("По дням недели", "Одна дата"), if (r.isDated) 1 else 0) { i ->
+        when {
+            i == 0 -> onChange { it.copy(date = 0) }
+            !r.isDated -> onChange { it.copy(date = if (laterToday(it, now)) today else tomorrow) }
+        }
+    }
+    if (r.isDated) {
+        var pick by remember { mutableStateOf(false) }
+        val other = r.date != today && r.date != tomorrow
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Pill("Сегодня", r.date == today, acc) { onChange { it.copy(date = today) } }
+            Pill("Завтра", r.date == tomorrow, acc) { onChange { it.copy(date = tomorrow) } }
+            Pill(if (other) Phrases.date(r.date, today) else "Другой день…", other, acc) { pick = true }
+        }
+        val passed = r.date < today || (r.date == today && !laterToday(r, now))
+        Text(
+            if (passed) "Этот день уже прошёл: выберите другую дату, иначе напоминание не придёт."
+            else "Придёт только в этот день. Потом карточка останется: её можно перенести на другую дату или удалить.",
+            color = if (!passed) p.muted else if (p.dark) Color(0xFFFDA4AF) else Rose, fontSize = 12.sp,
+        )
+        if (pick) DatePickDialog(r.date, today, onDismiss = { pick = false }) { d -> pick = false; onChange { it.copy(date = d) } }
+        return
+    }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         for (d in 0..6) {
             DayCircle(Rule.DAY_SHORT[d], r.onDay(d), acc, weekend = d >= 5) { onChange { it.copy(days = it.days xor (1 shl d)) } }
@@ -289,6 +315,13 @@ private fun DaysControls(r: Rule, acc: Color, onChange: ((Rule) -> Rule) -> Unit
             )
         }
     }
+}
+
+/** Осталось ли у напоминания сегодня хоть одно время впереди (с учётом «за N минут»). */
+private fun laterToday(r: Rule, now: Long): Boolean {
+    val c = Calendar.getInstance().apply { timeInMillis = now }
+    val nowMin = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE)
+    return r.rawTimes().any { it - r.lead > nowMin }
 }
 
 // =====================================================================
@@ -605,10 +638,11 @@ private fun TimesChips(r: Rule, idx: Int, rules: List<Rule>, now: Long, acc: Col
     val cal = Calendar.getInstance().apply { timeInMillis = now }
     val today = Rule.weekdayOf(cal.get(Calendar.DAY_OF_WEEK))
     val nowMin = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
-    val onToday = r.onDay(today)
-    val t = TimeMath.times(rules, idx, if (onToday) today else null)
+    val ymd = Rule.ymd(cal)
+    val onToday = r.activeOn(today, ymd)
+    val t = TimeMath.times(rules, idx, if (onToday) today else null, ymd)
     Column {
-        Label(if (onToday) "Все времена сегодня" else "Все времена (сегодня не работает)")
+        Label(if (onToday) "Все времена сегодня" else if (r.isDated) "Все времена в этот день" else "Все времена (сегодня не работает)")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             val fg = if (p.dark) lerp(acc, Color.White, 0.3f) else lerp(acc, Color.Black, 0.35f)
             for (m in t.take(MAX_CHIPS)) {

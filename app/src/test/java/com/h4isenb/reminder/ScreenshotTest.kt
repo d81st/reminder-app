@@ -35,6 +35,7 @@ class ScreenshotTest {
         Rule("Подъём", 7 * 60, 7 * 60, 60, false, "Доброе утро!", id = 3, kind = Rule.KIND_ALARM,
             days = Rule.WORKDAYS, challenge = Rule.CHALLENGE_MATH),
         Rule("Обед", 13 * 60, 13 * 60, 60, false, "Пора поесть", id = 4, color = 2, enabled = false),
+        Rule("Сдать отчёт", 14 * 60, 14 * 60, 60, false, "Отчёт за квартал", id = 5, color = 3, date = 20261015),
     )
 
     private val actions = MainActions(
@@ -93,6 +94,8 @@ class ScreenshotTest {
         RuntimeEnvironment.setFontScale(1.3f)
         shot("8_editor_bigfont_dark", true) { Editor(1) }
     }
+    @Config(qualifiers = "w390dp-h1900dp-hdpi")
+    @Test fun editorDatedLight() = shot("9_editor_dated_light", false) { Editor(4) }
     @Test fun settingsLight() = shot("5_settings_light", false) {
         SettingsPage(PermState(notifications = false), "По умолчанию", actions, onExport = {}, onPaste = {})
     }

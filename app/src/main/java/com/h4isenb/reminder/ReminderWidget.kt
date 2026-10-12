@@ -37,8 +37,7 @@ class ReminderWidget : AppWidgetProvider() {
             val pausedUntil = Pause.until(c)
             val paused = pausedUntil > now
             val rules = Store.load(c)
-            val e = TimeMath.events(rules, maxOf(now, pausedUntil), now + 8L * 24 * 60 * TimeMath.MIN, TimeZone.getDefault(), Store.doneMap(c))
-                .firstOrNull()
+            val e = TimeMath.firstEvent(rules, maxOf(now, pausedUntil), TimeZone.getDefault(), Store.doneMap(c))
             if (e == null) {
                 v.setTextViewText(R.id.w_caption, if (paused) "На паузе " + Phrases.pauseUntil(pausedUntil, now) else "Ближайших напоминаний нет")
                 v.setTextViewText(R.id.w_time, "—")
@@ -48,7 +47,8 @@ class ReminderWidget : AppWidgetProvider() {
                 val day = when {
                     sameDay(t, now) -> ""
                     sameDay(t, now + 24 * 60 * TimeMath.MIN) -> "завтра "
-                    else -> SimpleDateFormat("EE", ru).format(Date(t)) + " "
+                    t - now < 6 * 24 * 60 * TimeMath.MIN -> SimpleDateFormat("EE", ru).format(Date(t)) + " "
+                    else -> SimpleDateFormat("d MMM", ru).format(Date(t)).trimEnd('.') + " "
                 }
                 v.setTextViewText(R.id.w_caption,
                     if (paused) "На паузе " + Phrases.pauseUntil(pausedUntil, now) + " · потом" else (if (e.rule.isAlarm) "Будильник" else "Следующее"))

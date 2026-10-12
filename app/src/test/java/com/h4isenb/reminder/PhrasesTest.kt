@@ -64,4 +64,14 @@ class PhrasesTest {
         assertEquals("до завтра 09:00", Phrases.pauseUntil(at(13, 9, 0), now, tz))
         assertEquals("до чт 09:00", Phrases.pauseUntil(at(15, 9, 0), now, tz))
     }
+
+    @Test
+    fun dates() {
+        assertEquals("чт, 15 октября", Phrases.date(20261015, 20261012))
+        assertEquals("пт, 1 января 2027", Phrases.date(20270101, 20261012))
+        val r = Rule("Отчёт", 14 * 60, 14 * 60, 60, false, date = 20261015)
+        assertEquals("чт, 15 октября", Phrases.days(r, 20261012))
+        assertEquals("В 14:00", Phrases.schedule(r))
+        assertEquals("по будням", Phrases.days(r.copy(date = 0, days = Rule.WORKDAYS), 20261012))
+    }
 }

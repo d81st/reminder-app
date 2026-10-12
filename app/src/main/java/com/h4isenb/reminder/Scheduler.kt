@@ -36,7 +36,8 @@ object Scheduler {
         val rules = Store.load(c)
         // на паузе ничего не приходит: ищем первое событие после неё
         val start = maxOf(from, Pause.until(c))
-        val ev = TimeMath.events(rules, start, maxOf(now, start) + 36 * 60 * MIN, TimeZone.getDefault(), Store.doneMap(c)).firstOrNull()
+        // дальше 36 часов тоже смотрим: иначе будильник «по будням» с вечера пятницы не был бы поставлен на понедельник
+        val ev = TimeMath.firstEvent(rules, start, TimeZone.getDefault(), Store.doneMap(c))
         val sn = Store.snoozes(c).firstOrNull()
         return when {
             ev == null && sn == null -> null
