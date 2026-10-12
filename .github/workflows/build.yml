@@ -67,6 +67,13 @@ jobs:
             cp app/build/outputs/apk/debug/app-debug.apk Reminder.apk
           fi
 
+      # отпечаток ключа, которым подписан APK: сверить со своим ключом
+      - name: Signature
+        continue-on-error: true
+        run: |
+          signer=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$signer" verify --print-certs Reminder.apk | grep -E "DN:|SHA-256"
+
       - uses: actions/upload-artifact@v4
         with:
           name: Reminder-apk
