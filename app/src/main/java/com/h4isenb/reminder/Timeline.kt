@@ -56,7 +56,7 @@ private const val STRIP_AFTER = 30
 
 /** Полоса дней: день недели, число и точки напоминаний; выбранный день залит, сегодня — с рамкой. */
 @Composable
-fun WeekStrip(rules: List<Rule>, now: Long, selected: Int, onSelect: (Int) -> Unit) {
+fun WeekStrip(rules: List<Rule>, now: Long, selectedDay: Int, onSelect: (Int) -> Unit) {
     val p = LocalPalette.current
     val today = Rule.ymd(now)
     val days = remember(today) {
@@ -72,7 +72,7 @@ fun WeekStrip(rules: List<Rule>, now: Long, selected: Int, onSelect: (Int) -> Un
     val state = rememberLazyListState(initialFirstVisibleItemIndex = (STRIP_BEFORE - 1).coerceAtLeast(0))
     LazyRow(state = state, horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = 0.dp)) {
         items(days, key = { it.first }) { (ymd, wd) ->
-            val on = ymd == selected
+            val on = ymd == selectedDay
             val isToday = ymd == today
             Column(
                 Modifier
