@@ -44,6 +44,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.foundation.border
@@ -83,6 +84,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -128,7 +130,7 @@ fun MainScreen(
         if (editing != null) editing = null else tab = 0
     }
     LaunchedEffect(tab) {
-        if (tab == 1) vm.loadLog()
+        if (tab == 2) vm.loadLog()
     }
     // редактор открыт для напоминания, которого больше нет (например, после импорта с заменой)
     val editedRule = editing?.let { k -> vm.rules.firstOrNull { it.key == k } }
@@ -184,7 +186,12 @@ fun MainScreen(
                     onPause = vm::setPause,
                     onMove = vm::move,
                 )
-                1 -> LogPage(vm)
+                1 -> CalendarPage(vm.rules, vm.now, onOpen = { editing = it.key }) { ymd ->
+                    val r = vm.add(Templates.onDate(ymd, vm.now))
+                    if (r == null) actions.toast("Достигнут предел: ${MainViewModel.MAX_RULES} напоминаний")
+                    else editing = r.key
+                }
+                2 -> LogPage(vm)
                 else -> SettingsPage(perms, soundTitle, actions, onExport = { showExport = true }, onPaste = { showPaste = true })
             }
         }
@@ -256,25 +263,27 @@ private fun BottomBar(tab: Int, onTab: (Int) -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val items = listOf<Triple<String, ImageVector, Int>>(
-            Triple("Сегодня", Icons.Filled.DateRange, 0),
-            Triple("Журнал", Icons.AutoMirrored.Filled.List, 1),
-            Triple("Настройки", Icons.Filled.Settings, 2),
+            Triple("Сегодня", Icons.Filled.Home, 0),
+            Triple("Календарь", Icons.Filled.DateRange, 1),
+            Triple("Журнал", Icons.AutoMirrored.Filled.List, 2),
+            Triple("Настройки", Icons.Filled.Settings, 3),
         )
         for ((label, icon, i) in items) {
             val on = tab == i
+            // вкладок четыре: подпись только у открытой, у остальных значок
             Row(
                 Modifier
                     .heightIn(min = 48.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(if (on) p.tint else Color.Transparent)
-                    .clickable(role = Role.Tab) { onTab(i) }
-                    .padding(horizontal = if (on) 16.dp else 12.dp),
+                    .clickable(role = Role.Tab, onClickLabel = label) { onTab(i) }
+                    .semantics { contentDescription = label; selected = on }
+                    .padding(horizontal = if (on) 16.dp else 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Icon(icon, contentDescription = null, tint = if (on) p.tintText else p.muted, modifier = Modifier.size(20.dp))
-                Text(label, color = if (on) p.tintText else p.muted, fontSize = 13.sp,
-                    fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1)
+                if (on) Text(label, color = p.tintText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
             }
         }
     }

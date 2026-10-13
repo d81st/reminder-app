@@ -41,7 +41,7 @@ object Scheduler {
         val sn = Store.snoozes(c).firstOrNull()
         return when {
             ev == null && sn == null -> null
-            sn != null && (ev == null || sn.at <= ev.at) -> Next(sn.at, true)
+            sn != null && (ev == null || sn.at <= ev.at) -> Next(sn.at, sn.alarm)
             else -> Next(ev!!.at, ev.rule.isAlarm)
         }
     }
@@ -118,7 +118,8 @@ object Scheduler {
                 val series = e.total > 1 && e.rule.id > 0
                 // кнопка «Готово» нужна, пока в серии есть что-то после этого уведомления
                 post(c, TimeMath.notificationId(e.rule.id, e.baseAt), title, body,
-                    if (series) e.rule.id else 0, e.baseAt, series && e.seq < e.total)
+                    if (series) e.rule.id else 0, e.baseAt, series && e.seq < e.total,
+                    snooze = Snoozed(e.rule.id, e.rule.name + " · было в " + TimeMath.fmt(e.minute), body))
                 Store.addLog(c, now, if (shown) title else "$title (не показано: уведомления выключены)", body)
             }
             val ids = rules.map { it.id }.toSet()
@@ -127,6 +128,11 @@ object Scheduler {
                 Store.deleteSnooze(c, s.id)
                 // напоминание удалили, пока будильник был отложен (0 — проверочный будильник из настроек)
                 if (s.ruleId > 0 && s.ruleId !in ids) continue
+                if (!s.alarm) {
+                    post(c, TimeMath.notificationId(s.ruleId, s.at), s.title, s.text, snooze = Snoozed(s.ruleId, s.title, s.text))
+                    Store.addLog(c, now, "🔁 ${s.title} (отложенное)", s.text)
+                    continue
+                }
                 ring = Triple(s.ruleId, s.title, s.text)
                 Store.addLog(c, now, "⏰ ${s.title} (отложенный)", s.text)
             }
@@ -183,7 +189,16 @@ object Scheduler {
      * Показывает уведомление. ruleId > 0: уведомление относится к напоминанию с повторами, тап и смахивание
      * помечают его как «Готово». withDoneButton: добавить кнопку «Готово» (пока ещё есть повторы).
      */
-    fun post(c: Context, id: Int, title: String, text: String?, ruleId: Long = 0, baseAt: Long = 0, withDoneButton: Boolean = false) {
+    /** Что показать снова, если уведомление отложат. */
+    class Snoozed(val ruleId: Long, val title: String, val text: String)
+
+    /** Варианты «Отложить» в уведомлении, минут. */
+    val SNOOZE_OPTIONS = listOf(10 to "Через 10 мин", 60 to "Через час")
+
+    fun post(
+        c: Context, id: Int, title: String, text: String?, ruleId: Long = 0, baseAt: Long = 0, withDoneButton: Boolean = false,
+        snooze: Snoozed? = null,
+    ) {
         val body = if (text.isNullOrBlank()) title else text
         val nm = c.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -210,6 +225,17 @@ object Scheduler {
             b.setDeleteIntent(done)
             if (withDoneButton) {
                 b.addAction(Notification.Action.Builder(Icon.createWithResource(c, R.drawable.ic_notification), "Готово", done).build())
+            }
+        }
+
+        if (snooze != null) {
+            // «Отложить»: уведомление придёт снова через столько минут, а серия повторов остановится
+            for ((min, label) in SNOOZE_OPTIONS) {
+                val si = Intent(c, SnoozeReceiver::class.java).setAction(SnoozeReceiver.ACTION + min)
+                    .putExtra("rule", snooze.ruleId).putExtra("base", if (ruleId > 0) baseAt else 0L).putExtra("nid", id)
+                    .putExtra("title", snooze.title).putExtra("text", snooze.text).putExtra("min", min)
+                val pi = PendingIntent.getBroadcast(c, id, si, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                b.addAction(Notification.Action.Builder(Icon.createWithResource(c, R.drawable.ic_notification), label, pi).build())
             }
         }
 

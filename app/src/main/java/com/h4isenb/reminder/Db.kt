@@ -5,7 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
 /** Локальная база SQLite внутри телефона: напоминания, журнал, «Готово» для повторов и отложенные будильники. */
-class Db(c: Context) : SQLiteOpenHelper(c.applicationContext, "reminder.db", null, 7) {
+class Db(c: Context) : SQLiteOpenHelper(c.applicationContext, "reminder.db", null, 8) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -30,6 +30,7 @@ class Db(c: Context) : SQLiteOpenHelper(c.applicationContext, "reminder.db", nul
         createLog(db)
         createDone(db)
         createSnooze(db)
+        addSnoozeKind(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -60,6 +61,7 @@ class Db(c: Context) : SQLiteOpenHelper(c.applicationContext, "reminder.db", nul
             // «каждые N дней» от даты: 0 = нет
             db.execSQL("ALTER TABLE rules ADD COLUMN $EVERY_COLUMN")
         }
+        if (oldVersion < 8) addSnoozeKind(db)
     }
 
     private fun createLog(db: SQLiteDatabase) {
@@ -87,6 +89,11 @@ class Db(c: Context) : SQLiteOpenHelper(c.applicationContext, "reminder.db", nul
                 + "title TEXT NOT NULL,"
                 + "text TEXT NOT NULL)"
         )
+    }
+
+    /** Отложить можно и обычное уведомление: 1 = будильник (звонит), 0 = уведомление. */
+    private fun addSnoozeKind(db: SQLiteDatabase) {
+        db.execSQL("ALTER TABLE snooze ADD COLUMN alarm INTEGER NOT NULL DEFAULT 1")
     }
 
     private companion object {

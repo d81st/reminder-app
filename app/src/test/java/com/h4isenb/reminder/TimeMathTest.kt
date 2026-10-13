@@ -328,4 +328,18 @@ class TimeMathTest {
         assertEquals("19:00", hm(ev.last().at))
         assertEquals(13, ev.size)
     }
+
+    @Test
+    fun onDateForCalendar() {
+        val rules = listOf(
+            hourly(1).copy(days = Rule.WORKDAYS),
+            Rule("Отчёт", 14 * 60, 14 * 60, 60, false, id = 2, date = 20261015),
+            Rule("Выкл", 10 * 60, 10 * 60, 60, false, id = 3, enabled = false),
+        )
+        // чт 15 октября: «каждый час» по будням и разовое
+        assertEquals(listOf(0, 1), TimeMath.onDate(rules, 20261015).map { it.first })
+        assertEquals(listOf(14 * 60), TimeMath.onDate(rules, 20261015)[1].second)
+        // сб 17 октября: ничего
+        assertTrue(TimeMath.onDate(rules, 20261017).isEmpty())
+    }
 }

@@ -263,6 +263,14 @@ object TimeMath {
             .sortedWith(compareBy<Event>({ it.minute }, { it.index }))
     }
 
+    /** Что приходит в день ГГГГММДД: индекс напоминания и его времена (только включённые), для календаря. */
+    fun onDate(rules: List<Rule>, ymd: Int): List<Pair<Int, List<Int>>> {
+        val c = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
+        c.timeInMillis = Rule.midnightOf(ymd, TimeZone.getTimeZone("UTC"))
+        val wd = Rule.weekdayOf(c.get(Calendar.DAY_OF_WEEK))
+        return rules.indices.filter { rules[it].enabled }.map { it to times(rules, it, wd, ymd) }.filter { it.second.isNotEmpty() }
+    }
+
     /** Ближайшая полночь после now: «пауза до конца дня». */
     fun endOfDay(now: Long, tz: TimeZone = TimeZone.getDefault()): Long {
         val c = Calendar.getInstance(tz)

@@ -23,6 +23,14 @@ object Templates {
         },
     )
 
+    /** Новое разовое на день ГГГГММДД (из календаря): в 9:00, а сегодня — в ближайший целый час. */
+    fun onDate(ymd: Int, now: Long): Rule {
+        val c = java.util.Calendar.getInstance().apply { timeInMillis = now }
+        val nextHour = (c.get(java.util.Calendar.HOUR_OF_DAY) + 1).coerceAtMost(23) * 60
+        val at = if (ymd == Rule.ymd(now)) maxOf(9 * 60, nextHour) else 9 * 60
+        return Rule("Напоминание", at, at, 60, false, "Текст напоминания", date = ymd)
+    }
+
     /** Пустое напоминание, как раньше. */
     fun blank() = Rule("Новое напоминание", 9 * 60, 17 * 60, 60, false, "Текст напоминания")
 }

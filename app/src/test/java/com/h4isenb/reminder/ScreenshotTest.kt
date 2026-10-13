@@ -101,6 +101,8 @@ class ScreenshotTest {
     @Test fun editorDatedLight() = shot("9_editor_dated_light", false) { Editor(4) }
     @Config(qualifiers = "w390dp-h1900dp-hdpi")
     @Test fun editorCycleDark() = shot("10_editor_cycle_dark", true) { Editor(5) }
+    @Test fun calendarLight() = shot("11_calendar_light", false) { CalendarPage(rules, now, onOpen = {}, onAddOn = {}) }
+    @Test fun calendarDark() = shot("12_calendar_dark", true) { CalendarPage(rules, now, onOpen = {}, onAddOn = {}) }
     @Test fun settingsLight() = shot("5_settings_light", false) {
         SettingsPage(PermState(notifications = false), "По умолчанию", actions, onExport = {}, onPaste = {})
     }

@@ -17,7 +17,7 @@ object Store {
 
     class LogItem(val at: Long, val title: String, val text: String)
 
-    class Snooze(val id: Long, val ruleId: Long, val at: Long, val title: String, val text: String)
+    class Snooze(val id: Long, val ruleId: Long, val at: Long, val title: String, val text: String, val alarm: Boolean = true)
 
     fun prefs(c: Context): SharedPreferences = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -200,11 +200,12 @@ object Store {
         return map
     }
 
-    // ---------- отложенные будильники ----------
+    // ---------- отложенные будильники и уведомления ----------
 
     @Synchronized
-    fun addSnooze(c: Context, ruleId: Long, at: Long, title: String, text: String) {
+    fun addSnooze(c: Context, ruleId: Long, at: Long, title: String, text: String, alarm: Boolean = true) {
         val v = ContentValues().apply {
+            put("alarm", if (alarm) 1 else 0)
             put("rule_id", ruleId)
             put("at", at)
             put("title", title)
@@ -226,6 +227,7 @@ object Store {
                             cur.getLong(cur.getColumnIndexOrThrow("at")),
                             cur.str("title"),
                             cur.str("text"),
+                            cur.int("alarm") != 0,
                         )
                     )
                 }
