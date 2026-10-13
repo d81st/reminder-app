@@ -63,7 +63,7 @@ fun CalendarPage(rules: List<Rule>, now: Long, onOpen: (Rule) -> Unit, onAddOn: 
     var month by rememberSaveable { mutableIntStateOf(today / 10000 * 12 + today / 100 % 100 - 1) }
     var selected by rememberSaveable { mutableIntStateOf(today) }
     val weeks = remember(rules, month) { monthGrid(rules, month) }
-    val dayItems = remember(rules, selected) { TimeMath.onDate(rules, selected) }
+    val dayItems = remember(rules, selected) { TimeMath.onDate(rules, selected).sortedBy { it.second.first() } }
 
     LazyColumn(
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 120.dp),
