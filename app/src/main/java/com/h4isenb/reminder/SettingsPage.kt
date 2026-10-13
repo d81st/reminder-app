@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.Alarm
 import androidx.compose.material.icons.outlined.AlarmOn
 import androidx.compose.material.icons.outlined.BatteryChargingFull
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Image
@@ -161,6 +162,8 @@ private fun PermissionRow(icon: ImageVector, title: String, hint: String, ok: Bo
     val p = LocalPalette.current
     val good = if (p.dark) Color(0xFF4ADE80) else Green
     val bad = if (p.dark) Color(0xFFFDA4AF) else Rose
-    SettingsRow(icon, title, subtitle = hint, value = if (ok) "Включено" else "Включить", valueColor = if (ok) good else bad,
-        iconTint = if (ok) null else bad, onClick = onClick)
+    // разрешено — только зелёная галочка, чтобы название не сжималось; иначе — «Включить»
+    SettingsRow(icon, title, subtitle = hint, value = if (ok) null else "Включить", valueColor = bad,
+        iconTint = if (ok) null else bad, onClick = onClick,
+        trailing = if (ok) ({ Icon(Icons.Outlined.CheckCircle, contentDescription = "Включено", tint = good, modifier = Modifier.size(22.dp)) }) else null)
 }
