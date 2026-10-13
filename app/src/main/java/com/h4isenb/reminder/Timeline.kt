@@ -103,7 +103,8 @@ private fun colorOf(r: Rule, dark: Boolean): Color = if (r.isAlarm) (if (dark) A
 
 /** Что показать в ленте: время, пустой промежуток или линия «Сейчас». */
 private sealed class TlRow {
-    class Entry(val e: TimeMath.DayEntry, val next: Boolean) : TlRow()
+    /** series: (сколько всего времён у напоминания в этот день, сколько позади) — когда повторы свёрнуты в одну строку. */
+    class Entry(val e: TimeMath.DayEntry, val next: Boolean, val series: Pair<Int, Int>? = null) : TlRow()
     class Gap(val minutes: Int) : TlRow()
     class Now(val minute: Int) : TlRow()
 }
@@ -120,10 +121,11 @@ fun LazyListScope.dayTimeline(
     pausedUntil: Long,
     onOpen: (Rule) -> Unit,
     onToggleDone: (Rule, Long) -> Unit,
+    compact: Boolean = false,
 ) {
-    val entries = TimeMath.dayEntries(rules, ymd)
+    val all = TimeMath.dayEntries(rules, ymd)
     val today = Rule.ymd(now)
-    if (entries.isEmpty()) {
+    if (all.isEmpty()) {
         item(key = "tl-empty") {
             val p = LocalPalette.current
             Text(
@@ -138,19 +140,38 @@ fun LazyListScope.dayTimeline(
     val nowMin = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE)
     // время T уже наступило: уведомление было (или было бы) показано
     fun past(e: TimeMath.DayEntry) = ymd < today || (ymd == today && e.minute <= nowMin)
+    fun closed(e: TimeMath.DayEntry) = past(e) || e.doneKey() in done
+    // «Кратко»: у напоминания с MANY и больше временами в дне — одна строка на ближайшем незакрытом времени
+    val series = HashMap<String, Pair<Int, Int>>()
+    val entries = if (!compact) all else {
+        val groups = all.groupBy { it.index }
+        val keep = HashSet<String>()
+        for (g in groups.values) {
+            if (g.size < MANY) {
+                g.forEach { keep.add(it.doneKey()) }
+            } else {
+                val rep = g.firstOrNull { !closed(it) } ?: g.last()
+                keep.add(rep.doneKey())
+                series[rep.doneKey()] = g.size to g.count { closed(it) }
+            }
+        }
+        all.filter { it.doneKey() in keep }
+    }
     val nextIdx = if (ymd == today) entries.indexOfFirst { !past(it) && it.doneKey() !in done } else -1
     val rows = ArrayList<TlRow>()
     var nowShown = ymd != today
     for ((i, e) in entries.withIndex()) {
         if (i > 0) {
-            val gap = e.minute - entries[i - 1].minute
-            if (gap >= 120) rows.add(TlRow.Gap(gap))
+            val prev = entries[i - 1].minute
+            val gap = e.minute - prev
+            // пустой промежуток — только если в нём нет и свёрнутых времён
+            if (gap >= 120 && all.none { it.minute in (prev + 1)..<e.minute }) rows.add(TlRow.Gap(gap))
         }
         if (!nowShown && !past(e)) {
             rows.add(TlRow.Now(nowMin))
             nowShown = true
         }
-        rows.add(TlRow.Entry(e, i == nextIdx))
+        rows.add(TlRow.Entry(e, i == nextIdx, series[e.doneKey()]))
     }
     if (!nowShown) rows.add(TlRow.Now(nowMin))
 
@@ -161,7 +182,7 @@ fun LazyListScope.dayTimeline(
                 val first = k == 0
                 val last = k == rows.size - 1
                 when (row) {
-                    is TlRow.Entry -> EntryRow(row.e, row.next, past(row.e), row.e.doneKey() in done, ymd == today, now,
+                    is TlRow.Entry -> EntryRow(row.e, row.next, past(row.e), row.e.doneKey() in done, ymd == today, now, row.series,
                         paused = row.e.baseAt in now..<pausedUntil, first = first, last = last,
                         onOpen = { onOpen(row.e.rule) }, onToggle = { onToggleDone(row.e.rule, row.e.baseAt) })
                     is TlRow.Gap -> GapRow(row.minutes)
@@ -181,6 +202,9 @@ private fun Modifier.rail(color: Color, top: Boolean, bottom: Boolean, dashed: B
     if (bottom) drawLine(color, Offset(x, size.height / 2), Offset(x, size.height), w, pathEffect = effect)
 }
 
+/** С какого числа времён в дне повторы сворачиваются в одну строку. */
+private const val MANY = 4
+
 private val TIME_W = 50.dp
 private val RAIL_W = 34.dp
 
@@ -192,6 +216,7 @@ private fun EntryRow(
     done: Boolean,
     isToday: Boolean,
     now: Long,
+    series: Pair<Int, Int>?,
     paused: Boolean,
     first: Boolean,
     last: Boolean,
@@ -235,9 +260,12 @@ private fun EntryRow(
             Column(Modifier.weight(1f)) {
                 Text(r.name, color = p.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val sub = buildList {
-                    if (r.isAlarm) add("Будильник")
+                    if (series != null) {
+                        add(Phrases.schedule(r).replaceFirstChar { it.lowercase() })
+                        add("позади ${series.second} из ${series.first}")
+                    } else if (r.isAlarm) add("Будильник")
                     else if (Phrases.mode(r) == Phrases.MODE_PERSISTENT) add("Настойчиво")
-                    if (r.lead > 0) add("заранее за ${r.lead} мин")
+                    if (r.lead > 0 && series == null) add("заранее за ${r.lead} мин")
                     when {
                         done -> add("сделано")
                         paused -> add("на паузе")

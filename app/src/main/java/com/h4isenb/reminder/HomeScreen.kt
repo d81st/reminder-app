@@ -381,12 +381,15 @@ fun HomePage(
     onToggleDone: (Rule, Long) -> Unit = { _, _ -> },
     initialMode: Int = MODE_SCHEDULE,
     initialDay: Int = 0,
+    initialCompact: Boolean = true,
 ) {
     val p = LocalPalette.current
     val haptics = LocalHapticFeedback.current
     // «Расписание» — лента дня, «Напоминания» — карточки для настройки
     var mode by rememberSaveable { mutableIntStateOf(initialMode) }
     var dayPicked by rememberSaveable { mutableIntStateOf(initialDay) }
+    // повторы одного напоминания в ленте — одной строкой
+    var compact by rememberSaveable { mutableStateOf(initialCompact) }
     val todayYmd = Rule.ymd(now)
     // 0 — «сегодня», какой бы день ни наступил
     val day = if (dayPicked == 0) todayYmd else dayPicked
@@ -410,7 +413,13 @@ fun HomePage(
     ) {
         item(key = "header") { TodayHeader(rules, nextByKey, now, onToggleTheme, pausedUntil, onPause) }
         if (pausedUntil > now) item(key = "paused") { PausedBanner(pausedUntil, now) { onPause(0L) } }
-        if (showTip && rules.isNotEmpty()) item(key = "tip") { TipBanner(onHideTip) }
+        if (showTip && rules.isNotEmpty()) item(key = "tip") {
+            TipBanner(
+                if (mode == MODE_SCHEDULE) "Нажмите на время, чтобы изменить напоминание. Кружок справа — «Сделано»: отмеченное заранее уже не придёт."
+                else "Нажмите на карточку, чтобы изменить или удалить. Удерживайте, чтобы перетащить.",
+                onHideTip,
+            )
+        }
         val warn = when {
             !perms.notifications -> "Уведомления выключены. Разрешите их во вкладке «Настройки»."
             !perms.fullScreen && rules.any { it.isAlarm && it.enabled } ->
@@ -434,6 +443,9 @@ fun HomePage(
                 Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.Bottom) {
                     Text(if (day == todayYmd) "Сегодня" else Phrases.date(day, todayYmd).replaceFirstChar { it.uppercase() },
                         color = p.ink, fontFamily = Unbounded, fontWeight = FontWeight.Medium, fontSize = 17.sp, modifier = Modifier.weight(1f))
+                    Text(if (compact) "Все времена" else "Кратко", color = p.muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(role = Role.Button) { compact = !compact }
+                            .padding(horizontal = 8.dp, vertical = 4.dp))
                     if (day != todayYmd) {
                         Text("К сегодня", color = p.primary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(role = Role.Button) { dayPicked = 0 }
@@ -441,7 +453,7 @@ fun HomePage(
                     }
                 }
             }
-            dayTimeline(rules, day, now, done, pausedUntil, onOpen, onToggleDone)
+            dayTimeline(rules, day, now, done, pausedUntil, onOpen, onToggleDone, compact)
             return@LazyColumn
         }
         if (rules.isEmpty()) {
@@ -659,14 +671,14 @@ private fun nextLabel(r: Rule, next: TimeMath.Event?, now: Long): String {
 
 /** Подсказка для новичка над карточками; закрывается навсегда. */
 @Composable
-private fun TipBanner(onHide: () -> Unit) {
+private fun TipBanner(text: String, onHide: () -> Unit) {
     val p = LocalPalette.current
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(p.tint).padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("Нажмите на карточку, чтобы изменить или удалить. Удерживайте, чтобы перетащить.", color = p.tintText, fontSize = 13.sp,
+        Text(text, color = p.tintText, fontSize = 13.sp,
             lineHeight = 19.sp, modifier = Modifier.weight(1f))
         Box(
             Modifier.size(40.dp).clip(CircleShape).clickable(role = Role.Button, onClickLabel = "Скрыть подсказку", onClick = onHide),

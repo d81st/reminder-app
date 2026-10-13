@@ -66,7 +66,7 @@ class ScreenshotTest {
     }
 
     @Composable
-    private fun Home(pausedUntil: Long = 0L, mode: Int = MODE_SCHEDULE) {
+    private fun Home(pausedUntil: Long = 0L, mode: Int = MODE_SCHEDULE, compact: Boolean = true) {
         // как в приложении: на паузе «следующее» — первое после неё
         val next = TimeMath.nextByRule(rules, maxOf(now, pausedUntil)).entries.associate { (i, e) -> rules[i].key to e }
         HomePage(
@@ -76,6 +76,7 @@ class ScreenshotTest {
             // «Тетрадь и Telegram» в 9:00 уже отмечена сделанной
             done = mapOf("1:" + TimeMath.dayEntries(rules, 20261012).first { it.rule.id == 1L }.baseAt to now),
             initialMode = mode,
+            initialCompact = compact,
         )
     }
 
@@ -89,6 +90,8 @@ class ScreenshotTest {
     @Test fun homeRulesLight() = shot("17_home_rules_light", false) { Home(mode = MODE_RULES) }
     @Config(qualifiers = "w390dp-h2000dp-hdpi")
     @Test fun homeScheduleTallLight() = shot("18_home_schedule_tall_light", false) { Home() }
+    @Config(qualifiers = "w390dp-h2000dp-hdpi")
+    @Test fun homeScheduleFullLight() = shot("19_home_schedule_full_light", false) { Home(compact = false) }
     @Test fun homePausedLight() = shot("7_home_paused_light", false) { Home(pausedUntil = now + 72 * 60_000L) }
     // редактор длинный: снимаем высоким экраном, чтобы был виден пример «Как это будет»
     @Config(qualifiers = "w390dp-h1900dp-hdpi")
