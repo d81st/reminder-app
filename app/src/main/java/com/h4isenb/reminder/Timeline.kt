@@ -272,7 +272,7 @@ private fun EntryRow(
                         next -> add(TimeMath.countdown(e.baseAt + r.lead * TimeMath.MIN, now))
                     }
                 }.joinToString(" · ").ifEmpty { r.text.ifBlank { "напоминание" } }
-                Text(sub, color = if (next && !done) acc else p.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                Text(sub, color = if (next && !done) acc else p.muted, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
                     fontWeight = if (next) FontWeight.SemiBold else FontWeight.Normal)
             }
             // «Сделано» — только для сегодняшнего дня: отметки хранятся несколько дней
