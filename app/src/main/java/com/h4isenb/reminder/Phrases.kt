@@ -58,7 +58,14 @@ object Phrases {
     }
 
     /** Дни напоминания: «по будням» или, для разового, «ср, 15 октября». */
-    fun days(r: Rule, todayYmd: Int): String = if (r.isDated) date(r.date, todayYmd) else days(r.days)
+    fun days(r: Rule, todayYmd: Int): String = when {
+        r.isCycle -> every(r.everyDays) + ", с " + date(r.date, todayYmd).substringAfter(", ")
+        r.isDated -> date(r.date, todayYmd)
+        else -> days(r.days)
+    }
+
+    /** «через день», «каждые 3 дня», «каждые 5 дней». */
+    fun every(n: Int): String = if (n == 2) "через день" else "каждые $n " + TimeMath.plural(n, "день", "дня", "дней")
 
     /** Метка на карточке: «Тихо · одно уведомление», «Настойчиво · ещё 3 раза», «Будильник». */
     fun modeLabel(r: Rule): String = when (mode(r)) {

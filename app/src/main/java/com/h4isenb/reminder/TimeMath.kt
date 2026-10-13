@@ -132,10 +132,11 @@ object TimeMath {
 
         // времена каждого напоминания по дням: [напоминание]. Обычные дни недели повторяются, поэтому считаются один раз;
         // день, на который выпадает разовое напоминание, считается отдельно
-        val dates = rules.filter { it.enabled && it.isDated }.map { it.date }.toSet()
-        val byDay = HashMap<Long, List<List<Int>>>()
+        val dated = rules.indices.filter { rules[it].enabled && rules[it].isDated }
+        val byDay = HashMap<String, List<List<Int>>>()
         fun timesOn(wd: Int, ymd: Int): List<List<Int>> {
-            val k = if (ymd in dates) ymd * 10L + wd else wd.toLong()
+            // ключ: день недели и какие из привязанных к дате напоминаний работают в этот день
+            val k = wd.toString() + dated.filter { rules[it].activeOn(wd, ymd) }.joinToString(",", ":")
             return byDay.getOrPut(k) { rules.indices.map { i -> if (rules[i].enabled) times(rules, i, wd, ymd) else emptyList() } }
         }
 
@@ -195,12 +196,16 @@ object TimeMath {
         for (e in events(rules, now, now + 8L * 24 * 60 * MIN, tz)) {
             if (e.repeat == 0 && e.index !in out) out[e.index] = e
         }
-        // разовые напоминания могут быть и дальше недели: считаем только их день
+        // привязанные к дате могут прийти и позже недели: считаем только их ближайшие дни
         for (i in rules.indices) {
             val r = rules[i]
             if (i in out || !r.enabled || !r.isDated) continue
-            val (from, to) = dayWindow(r.date, now, tz) ?: continue
-            events(rules, from, to, tz).firstOrNull { it.index == i && it.repeat == 0 }?.let { out[i] = it }
+            for (d in datedDays(r, now, tz)) {
+                val (from, to) = dayWindow(d, now, tz) ?: continue
+                val e = events(rules, from, to, tz).firstOrNull { it.index == i && it.repeat == 0 } ?: continue
+                out[i] = e
+                break
+            }
         }
         return out
     }
@@ -212,9 +217,19 @@ object TimeMath {
     fun firstEvent(rules: List<Rule>, fromExcl: Long, tz: TimeZone = TimeZone.getDefault(), done: Map<String, Long> = emptyMap()): Event? {
         events(rules, fromExcl, fromExcl + 36 * 60 * MIN, tz, done).firstOrNull()?.let { return it }
         events(rules, fromExcl, fromExcl + 8L * 24 * 60 * MIN, tz, done).firstOrNull()?.let { return it }
-        return rules.filter { it.enabled && it.isDated }.map { it.date }.distinct().sorted().firstNotNullOfOrNull { d ->
+        return rules.filter { it.enabled && it.isDated }.flatMap { datedDays(it, fromExcl, tz) }.distinct().sorted().firstNotNullOfOrNull { d ->
             dayWindow(d, fromExcl, tz)?.let { (from, to) -> events(rules, from, to, tz, done).firstOrNull() }
         }
+    }
+
+    /** Два ближайших дня привязанного к дате напоминания, начиная со вчерашнего (серия могла начаться накануне). */
+    private fun datedDays(r: Rule, from: Long, tz: TimeZone): List<Int> {
+        val c = Calendar.getInstance(tz)
+        c.timeInMillis = from
+        c.add(Calendar.DAY_OF_YEAR, -1)
+        val a = r.nextDate(Rule.ymd(c)) ?: return emptyList()
+        val b = r.nextDate(Rule.fromEpochDay(Rule.epochDay(a) + 1))
+        return listOfNotNull(a, b)
     }
 
     /**

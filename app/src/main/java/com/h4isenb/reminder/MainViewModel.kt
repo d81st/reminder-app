@@ -268,6 +268,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             color = r.color.coerceIn(0, Accents.size - 1),
             snoozeMin = r.snoozeMin.coerceIn(1, 60),
             date = if (Rule.validYmd(r.date)) r.date else 0,
+            everyDays = if (r.everyDays in 2..Rule.MAX_EVERY_DAYS) r.everyDays else 0,
         )
     }
 }

@@ -36,6 +36,9 @@ class ScreenshotTest {
             days = Rule.WORKDAYS, challenge = Rule.CHALLENGE_MATH),
         Rule("Обед", 13 * 60, 13 * 60, 60, false, "Пора поесть", id = 4, color = 2, enabled = false),
         Rule("Сдать отчёт", 14 * 60, 14 * 60, 60, false, "Отчёт за квартал", id = 5, color = 3, date = 20261015),
+        // через день в 19:00, с 18:55 каждую минуту до самого времени
+        Rule("Полить цветы", 19 * 60, 19 * 60, 60, false, "Полей цветы на балконе", id = 6, color = 4,
+            date = 20261012, everyDays = 2, repeatCount = 5, repeatEvery = 1),
     )
 
     private val actions = MainActions(
@@ -96,6 +99,8 @@ class ScreenshotTest {
     }
     @Config(qualifiers = "w390dp-h1900dp-hdpi")
     @Test fun editorDatedLight() = shot("9_editor_dated_light", false) { Editor(4) }
+    @Config(qualifiers = "w390dp-h1900dp-hdpi")
+    @Test fun editorCycleDark() = shot("10_editor_cycle_dark", true) { Editor(5) }
     @Test fun settingsLight() = shot("5_settings_light", false) {
         SettingsPage(PermState(notifications = false), "По умолчанию", actions, onExport = {}, onPaste = {})
     }

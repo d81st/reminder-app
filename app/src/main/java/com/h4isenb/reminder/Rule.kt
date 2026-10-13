@@ -26,19 +26,43 @@ data class Rule(
     val gradual: Boolean = true,   // громкость будильника нарастает
     /** Разовое напоминание: только в этот день, ГГГГММДД (20261015). 0 = по дням недели (days). */
     val date: Int = 0,
+    /** 2 и больше: не один раз, а каждые столько дней, начиная с date. */
+    val everyDays: Int = 0,
     /** Ключ карточки в интерфейсе: не меняется, когда новое напоминание получает id при сохранении. */
     val key: Long = if (id > 0) id else nextKey(),
 ) {
     val isAlarm: Boolean get() = kind == KIND_ALARM
 
-    /** Разовое: на одну дату, а не по дням недели. */
+    /** Привязано к дате (одна дата или «каждые N дней» от неё), а не к дням недели. */
     val isDated: Boolean get() = date != 0
+
+    /** Только в один день. */
+    val isOneDay: Boolean get() = date != 0 && everyDays < 2
+
+    /** Каждые everyDays дней, начиная с date. */
+    val isCycle: Boolean get() = date != 0 && everyDays >= 2
 
     /** Отмечен ли день недели (0 = понедельник ... 6 = воскресенье). Для разового дни недели не действуют: см. activeOn. */
     fun onDay(weekday: Int): Boolean = days and (1 shl weekday) != 0
 
     /** Работает ли напоминание в этот день: weekday — день недели, ymd — дата ГГГГММДД (null = любая). */
-    fun activeOn(weekday: Int, ymd: Int?): Boolean = if (isDated) ymd == null || ymd == date else onDay(weekday)
+    fun activeOn(weekday: Int, ymd: Int?): Boolean = when {
+        !isDated -> onDay(weekday)
+        ymd == null -> true
+        isCycle -> (epochDay(ymd) - epochDay(date)).let { it >= 0 && it % everyDays == 0L }
+        else -> ymd == date
+    }
+
+    /** Первый день не раньше fromYmd, в который работает привязанное к дате напоминание; null — таких дней больше нет. */
+    fun nextDate(fromYmd: Int): Int? = when {
+        !isDated -> null
+        isCycle -> {
+            val d = epochDay(fromYmd) - epochDay(date)
+            if (d <= 0) date else fromEpochDay(epochDay(fromYmd) + Math.floorMod(-d, everyDays.toLong()))
+        }
+        date >= fromYmd -> date
+        else -> null
+    }
 
     /** Все времена окна без учёта других напоминаний. */
     fun rawTimes(): List<Int> {
@@ -49,7 +73,10 @@ data class Rule(
     /** Сколько повторов реально будет: серия должна уложиться раньше соседнего времени этого же напоминания. */
     fun effectiveRepeats(): Int {
         if (isAlarm) return 0 // будильник звонит, пока его не выключат: серия уведомлений не нужна
-        if (repeatCount <= 0 || repeatEvery < 1 || interval < 2) return 0
+        if (repeatCount <= 0 || repeatEvery < 1) return 0
+        // одно время в день: соседнего времени нет, серия ограничена только 12 часами
+        if (end - start < interval) return minOf(repeatCount, 720 / repeatEvery)
+        if (interval < 2) return 0
         return minOf(repeatCount, (interval - 1) / repeatEvery)
     }
 
@@ -65,6 +92,9 @@ data class Rule(
         const val CHALLENGE_NONE = 0
         /** Чтобы выключить будильник, нужно решить пример. */
         const val CHALLENGE_MATH = 1
+
+        /** «Каждые N дней»: не больше месяца. */
+        const val MAX_EVERY_DAYS = 30
 
         const val ALL_DAYS = 0b1111111
         const val WORKDAYS = 0b0011111
@@ -100,6 +130,14 @@ data class Rule(
             c.set(ymd / 10000, ymd / 100 % 100 - 1, ymd % 100, 0, 0, 0)
             return c.timeInMillis
         }
+
+        private const val DAY_MS = 24 * 60 * 60 * 1000L
+        private val UTC = java.util.TimeZone.getTimeZone("UTC")
+
+        /** Номер дня ГГГГММДД от 1970-01-01: для счёта «каждые N дней». */
+        fun epochDay(ymd: Int): Long = midnightOf(ymd, UTC) / DAY_MS
+
+        fun fromEpochDay(day: Long): Int = ymd(day * DAY_MS, UTC)
 
         /** Есть ли такой день в календаре (для данных из кода и базы). */
         fun validYmd(ymd: Int): Boolean {

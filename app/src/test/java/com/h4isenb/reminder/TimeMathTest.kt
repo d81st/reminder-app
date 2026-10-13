@@ -290,4 +290,42 @@ class TimeMathTest {
         assertTrue(!Rule.validYmd(20261301))
         assertTrue(!Rule.validYmd(0))
     }
+
+    // ----- каждые N дней -----
+
+    @Test
+    fun everyTwoDaysFromDate() {
+        val r = Rule("Цветы", 19 * 60, 19 * 60, 60, false, id = 8, date = 20261012, everyDays = 2)
+        val ev = TimeMath.events(listOf(r), at(2026, 10, 11, 0, 0), at(2026, 10, 19, 0, 0), tz)
+        assertEquals(listOf(12, 14, 16, 18).map { at(2026, 10, it, 19, 0) }, ev.map { it.at })
+    }
+
+    @Test
+    fun nextDateOfCycle() {
+        val r = Rule("x", date = 20261012, everyDays = 3)
+        assertEquals(20261012, r.nextDate(20261001))
+        assertEquals(20261012, r.nextDate(20261012))
+        assertEquals(20261015, r.nextDate(20261013))
+        assertEquals(20261102, r.nextDate(20261031)) // через конец месяца
+        assertEquals(null, Rule("x", date = 20261012).nextDate(20261013))
+    }
+
+    @Test
+    fun longCycleFoundBeyondWeek() {
+        val r = Rule("x", 19 * 60, 19 * 60, 60, false, id = 9, date = 20261012, everyDays = 20)
+        val now = at(2026, 10, 13, 10, 0)
+        assertEquals(at(2026, 11, 1, 19, 0), TimeMath.firstEvent(listOf(r), now, tz)!!.at)
+        assertEquals(at(2026, 11, 1, 19, 0), TimeMath.nextByRule(listOf(r), now, tz)[0]!!.at)
+    }
+
+    @Test
+    fun oneTimeADaySeriesIsNotLimitedByHiddenInterval() {
+        // одно время в день: 12 повторов каждые 10 минут (2 часа до времени) не урезаются «интервалом» в 60 минут
+        val r = Rule("x", 19 * 60, 19 * 60, 60, false, id = 10, repeatCount = 12, repeatEvery = 10)
+        assertEquals(12, r.effectiveRepeats())
+        val ev = TimeMath.events(listOf(r), at(2026, 10, 13, 0, 0), at(2026, 10, 13, 23, 0), tz)
+        assertEquals("17:00", hm(ev.first().at))
+        assertEquals("19:00", hm(ev.last().at))
+        assertEquals(13, ev.size)
+    }
 }

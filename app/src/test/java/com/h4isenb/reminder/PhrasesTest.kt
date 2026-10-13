@@ -74,4 +74,11 @@ class PhrasesTest {
         assertEquals("В 14:00", Phrases.schedule(r))
         assertEquals("по будням", Phrases.days(r.copy(date = 0, days = Rule.WORKDAYS), 20261012))
     }
+
+    @Test
+    fun cycles() {
+        assertEquals("через день, с 12 октября", Phrases.days(Rule("x", date = 20261012, everyDays = 2), 20261013))
+        assertEquals("каждые 5 дней, с 12 октября", Phrases.days(Rule("x", date = 20261012, everyDays = 5), 20261013))
+        assertEquals("каждые 3 дня", Phrases.every(3))
+    }
 }

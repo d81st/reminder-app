@@ -85,5 +85,6 @@ class RuleCodecTest {
         // обычные напоминания не несут даты; несуществующая дата превращается в «по дням недели»
         assertEquals(0, RuleCodec.decode(RuleCodec.encode(listOf(r.copy(date = 0))))[0].date)
         assertEquals(0, RuleCodec.decode(RuleCodec.encode(listOf(r.copy(date = 20261332))))[0].date)
+        assertEquals(3, RuleCodec.decode(RuleCodec.encode(listOf(r.copy(everyDays = 3))))[0].everyDays)
     }
 }

@@ -547,7 +547,7 @@ fun DayTimeline(today: List<TimeMath.Event>, now: Long, modifier: Modifier = Mod
 /** Подпись под крупным временем: «следующее · через 42 мин», «завтра», «в пятницу». */
 private fun nextLabel(r: Rule, next: TimeMath.Event?, now: Long): String {
     if (!r.enabled) return "выключено"
-    if (next == null) return if (r.isDated && r.date <= Rule.ymd(now)) "уже прошло" else "не запланировано"
+    if (next == null) return if (r.isOneDay && r.date <= Rule.ymd(now)) "уже прошло" else "не запланировано"
     val t = next.baseAt + r.lead * TimeMath.MIN
     return when {
         sameDay(t, now) && t - now <= 3 * 60 * TimeMath.MIN -> "следующее · " + TimeMath.countdown(t, now)

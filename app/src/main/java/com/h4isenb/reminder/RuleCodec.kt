@@ -46,6 +46,7 @@ object RuleCodec {
                     .put("ch", r.challenge)
                     .put("g", if (r.gradual) 1 else 0)
                     .apply { if (r.isDated) put("dt", r.date) }
+                    .apply { if (r.isCycle) put("ed", r.everyDays) }
             )
         }
         val json = JSONObject().put("v", 1).put("r", arr).toString().toByteArray(Charsets.UTF_8)
@@ -100,6 +101,7 @@ object RuleCodec {
                     challenge = if (o.optInt("ch", 0) == Rule.CHALLENGE_MATH) Rule.CHALLENGE_MATH else Rule.CHALLENGE_NONE,
                     gradual = o.optInt("g", 1) == 1,
                     date = o.optInt("dt", 0).let { if (Rule.validYmd(it)) it else 0 },
+                    everyDays = o.optInt("ed", 0).let { if (it in 2..Rule.MAX_EVERY_DAYS) it else 0 },
                 )
             )
         }

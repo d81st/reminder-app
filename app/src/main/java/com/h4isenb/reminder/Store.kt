@@ -95,6 +95,7 @@ object Store {
                         challenge = cur.int("challenge"),
                         gradual = cur.int("gradual") == 1,
                         date = cur.int("date_ymd").let { if (Rule.validYmd(it)) it else 0 },
+                        everyDays = cur.int("every_days").let { if (it in 2..Rule.MAX_EVERY_DAYS) it else 0 },
                     )
                 )
             }
@@ -141,6 +142,7 @@ object Store {
                     put("challenge", r.challenge)
                     put("gradual", if (r.gradual) 1 else 0)
                     put("date_ymd", r.date)
+                    put("every_days", r.everyDays)
                 }
                 val updated = r.id > 0 && db.update("rules", v, "id=?", arrayOf(r.id.toString())) > 0
                 out.add(if (updated) r else r.copy(id = db.insert("rules", null, v)))
