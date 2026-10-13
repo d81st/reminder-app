@@ -41,17 +41,23 @@ object QrCodes {
     }
 
     /** Ищет QR-код на картинке (например, на снимке экрана из мессенджера) и возвращает его текст. */
-    fun decode(c: Context, uri: Uri): String? = try {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        c.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-        var sample = 1
-        while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 2000) sample *= 2
-        val bmp = c.contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
+    fun decode(c: Context, uri: Uri): String? {
+        return try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            c.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            // не картинка или картинка-«бомба» с огромными размерами
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0 || maxOf(bounds.outWidth, bounds.outHeight) > 30_000) return null
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 2000) sample *= 2
+            val bmp = c.contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
+            }
+            bmp?.let(::decode)
+        } catch (e: Exception) {
+            null
+        } catch (e: OutOfMemoryError) {
+            null
         }
-        bmp?.let(::decode)
-    } catch (e: Exception) {
-        null
     }
 
     fun decode(bmp: Bitmap): String? {

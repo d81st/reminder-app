@@ -1,5 +1,9 @@
 package com.h4isenb.reminder
 
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import androidx.lifecycle.lifecycleScope
 import android.Manifest
 import android.content.Intent
 import android.media.Ringtone
@@ -151,8 +155,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun importFromImage(uri: Uri) {
-        val text = QrCodes.decode(this, uri)
-        if (text == null) toast("На картинке не найден QR-код") else tryImport(text)
+        // только content://: так чужое приложение не подсунет file:// к нашим же файлам или к «вечному» файлу
+        if (uri.scheme != android.content.ContentResolver.SCHEME_CONTENT) {
+            toast("Не удалось открыть картинку")
+            return
+        }
+        // картинка читается и разбирается в фоне: большая картинка не должна подвешивать экран
+        lifecycleScope.launch {
+            val text = withContext(Dispatchers.IO) { QrCodes.decode(this@MainActivity, uri) }
+            if (text == null) toast("На картинке не найден QR-код") else tryImport(text)
+        }
     }
 
     private fun confirmImport(replace: Boolean) {
