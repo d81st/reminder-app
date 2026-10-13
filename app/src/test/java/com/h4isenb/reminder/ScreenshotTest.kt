@@ -103,6 +103,11 @@ class ScreenshotTest {
     @Test fun editorCycleDark() = shot("10_editor_cycle_dark", true) { Editor(5) }
     @Test fun calendarLight() = shot("11_calendar_light", false) { CalendarPage(rules, now, onOpen = {}, onAddOn = {}) }
     @Test fun calendarDark() = shot("12_calendar_dark", true) { CalendarPage(rules, now, onOpen = {}, onAddOn = {}) }
+    @Config(qualifiers = "w390dp-h1400dp-hdpi")
+    @Test fun settingsDark() = shot("13_settings_dark", true) {
+        SettingsPage(PermState(battery = false), "По умолчанию", actions, onExport = {}, onPaste = {})
+    }
+    @Config(qualifiers = "w390dp-h1400dp-hdpi")
     @Test fun settingsLight() = shot("5_settings_light", false) {
         SettingsPage(PermState(notifications = false), "По умолчанию", actions, onExport = {}, onPaste = {})
     }
