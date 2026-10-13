@@ -42,6 +42,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var now by mutableLongStateOf(System.currentTimeMillis())
         private set
 
+    /** Списки дел. */
+    var lists by mutableStateOf<List<TaskList>>(emptyList())
+        private set
+
     /** До какого момента пауза (0 — нет паузы). */
     var pausedUntil by mutableLongStateOf(0L)
         private set
@@ -84,6 +88,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             rules = withContext(Dispatchers.IO) { Store.load(ctx) }
             tipHidden = withContext(Dispatchers.IO) { Store.prefs(ctx).getBoolean("tipHomeHidden", false) }
             pausedUntil = withContext(Dispatchers.IO) { Pause.until(ctx) }
+            lists = withContext(Dispatchers.IO) { Store.loadLists(ctx) }
             loaded = true
             recomputeNext(0)
             refreshStatus()
@@ -139,6 +144,80 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         persist()
     }
 
+    // ---------- списки дел ----------
+
+    class DeletedList(val list: TaskList, val index: Int)
+
+    /** Номер правки списков: сохранение, после которого правок не было, снимает «есть несохранённое». */
+    private var listEdits = 0
+    private var listsDirty = false
+    private var listSaveJob: Job? = null
+    private val knownListIds = ConcurrentHashMap<Long, Long>()
+
+    /** Новый пустой список (сверху); null, если списков слишком много. */
+    fun addList(): TaskList? {
+        if (lists.size >= MAX_LISTS) return null
+        val l = TaskList(color = lists.size % Accents.size, updated = System.currentTimeMillis())
+        lists = listOf(l) + lists
+        scheduleListSave()
+        return l
+    }
+
+    fun updateList(key: Long, change: (TaskList) -> TaskList) {
+        lists = lists.map { if (it.key == key) change(it).copy(updated = System.currentTimeMillis()) else it }
+        scheduleListSave()
+    }
+
+    fun deleteList(key: Long): DeletedList? {
+        val i = lists.indexOfFirst { it.key == key }
+        if (i < 0) return null
+        val d = DeletedList(lists[i], i)
+        lists = lists.filter { it.key != key }
+        scheduleListSave(0)
+        return d
+    }
+
+    fun restoreList(d: DeletedList) {
+        if (lists.size >= MAX_LISTS || lists.any { it.key == d.list.key }) return
+        lists = lists.toMutableList().apply { add(d.index.coerceIn(0, size), d.list) }
+        scheduleListSave(0)
+    }
+
+    /** Закрыли список: пустой (без названия и пунктов) не храним. */
+    fun closeList(key: Long) {
+        val l = lists.firstOrNull { it.key == key } ?: return
+        if (l.title.isBlank() && l.items.all { it.text.isBlank() }) {
+            lists = lists.filter { it.key != key }
+            scheduleListSave(0)
+        }
+    }
+
+    private fun scheduleListSave(delayMs: Long = 600) {
+        listsDirty = true
+        val edit = ++listEdits
+        listSaveJob?.cancel()
+        listSaveJob = viewModelScope.launch {
+            if (delayMs > 0) delay(delayMs)
+            saveMutex.withLock {
+                val saved = withContext(Dispatchers.IO) { saveListsBlocking(lists) }
+                applySavedLists(saved)
+                if (edit == listEdits) listsDirty = false
+            }
+        }
+    }
+
+    private fun saveListsBlocking(snapshot: List<TaskList>): List<TaskList> = synchronized(saveLock) {
+        val prepared = snapshot.map { l -> if (l.id == 0L) knownListIds[l.key]?.let { l.copy(id = it) } ?: l else l }
+        val saved = Store.saveLists(ctx, prepared)
+        for (s in saved) knownListIds[s.key] = s.id
+        saved
+    }
+
+    private fun applySavedLists(saved: List<TaskList>) {
+        val ids = saved.associate { it.key to it.id }
+        lists = lists.map { l -> ids[l.key]?.let { if (it != l.id) l.copy(id = it) else l } ?: l }
+    }
+
     /**
      * Импорт напоминаний из кода. replace = заменить все свои, иначе добавить к своим (сколько поместится).
      * Возвращает, сколько напоминаний добавлено.
@@ -165,6 +244,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Сохранить сразу и дождаться (при уходе с экрана, чтобы правка не потерялась). */
     fun flush() {
+        if (listsDirty) {
+            listSaveJob?.cancel()
+            applySavedLists(saveListsBlocking(lists))
+            listsDirty = false
+        }
         if (!dirty) return
         saveJob?.cancel()
         applySaved(saveBlocking(rules))
@@ -258,6 +342,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     companion object {
         const val MAX_RULES = 30
+        const val MAX_LISTS = 100
 
         fun sanitize(r: Rule) = r.copy(
             name = r.name.trim().ifEmpty { "Напоминание" },

@@ -45,6 +45,10 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.foundation.border
@@ -99,6 +103,11 @@ import java.util.Locale
 
 private val ru = Locale("ru")
 
+private const val TAB_LISTS = 2
+private const val TAB_SETTINGS = 3
+/** Журнал открывается из настроек, своей кнопки внизу у него нет. */
+private const val TAB_LOG = 4
+
 // =====================================================================
 // каркас: вкладки, редактор поверх, заготовки
 // =====================================================================
@@ -118,6 +127,7 @@ fun MainScreen(
     var showExport by rememberSaveable { mutableStateOf(false) }
     var showPaste by rememberSaveable { mutableStateOf(false) }
     var showTemplates by rememberSaveable { mutableStateOf(false) }
+    var editingList by rememberSaveable { mutableStateOf<Long?>(null) }
     /** Ключ карточки, открытой в редакторе; null — редактор закрыт. */
     var editing by rememberSaveable { mutableStateOf<Long?>(null) }
     val listState = rememberLazyListState()
@@ -126,11 +136,40 @@ fun MainScreen(
     val haptics = LocalHapticFeedback.current
     val keyboardOpen = WindowInsets.isImeVisible
 
-    BackHandler(enabled = editing != null || tab != 0) {
-        if (editing != null) editing = null else tab = 0
+    BackHandler(enabled = editing != null || editingList != null || tab != 0) {
+        when {
+            editing != null -> editing = null
+            editingList != null -> editingList?.let { vm.closeList(it); editingList = null }
+            tab == TAB_LOG -> tab = TAB_SETTINGS
+            else -> tab = 0
+        }
     }
     LaunchedEffect(tab) {
-        if (tab == 2) vm.loadLog()
+        if (tab == TAB_LOG) vm.loadLog()
+    }
+    val editedList = editingList?.let { k -> vm.lists.firstOrNull { it.key == k } }
+    LaunchedEffect(editingList, editedList == null, vm.loaded) {
+        if (editingList != null && editedList == null && vm.loaded) editingList = null
+    }
+    val newList: () -> Unit = {
+        val l = vm.addList()
+        if (l == null) actions.toast("Достигнут предел: ${MainViewModel.MAX_LISTS} списков")
+        else {
+            tab = TAB_LISTS
+            editingList = l.key
+        }
+    }
+    val onListDeleted: (TaskList) -> Unit = { l ->
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        editingList = null
+        val d = vm.deleteList(l.key)
+        if (d != null && (l.title.isNotBlank() || l.items.any { it.text.isNotBlank() })) {
+            scope.launch {
+                snackbar.currentSnackbarData?.dismiss()
+                val res = snackbar.showSnackbar("Список удалён", actionLabel = "Отменить", duration = SnackbarDuration.Long)
+                if (res == SnackbarResult.ActionPerformed) vm.restoreList(d)
+            }
+        }
     }
     // редактор открыт для напоминания, которого больше нет (например, после импорта с заменой)
     val editedRule = editing?.let { k -> vm.rules.firstOrNull { it.key == k } }
@@ -158,7 +197,7 @@ fun MainScreen(
     }
     pendingImport?.let { ImportDialog(it, vm.rules.size, onImport, onImportCancel) }
     if (showTemplates) {
-        TemplateSheet(onDismiss = { showTemplates = false }) { t ->
+        TemplateSheet(onDismiss = { showTemplates = false }, onList = { showTemplates = false; newList() }) { t ->
             showTemplates = false
             val r = vm.add(t)
             if (r == null) actions.toast("Достигнут предел: ${MainViewModel.MAX_RULES} напоминаний")
@@ -191,22 +230,25 @@ fun MainScreen(
                     if (r == null) actions.toast("Достигнут предел: ${MainViewModel.MAX_RULES} напоминаний")
                     else editing = r.key
                 }
-                2 -> LogPage(vm)
-                else -> SettingsPage(perms, soundTitle, actions, onExport = { showExport = true }, onPaste = { showPaste = true })
+                TAB_LISTS -> ListsPage(vm.lists) { editingList = it.key }
+                TAB_LOG -> LogPage(vm, onBack = { tab = TAB_SETTINGS })
+                else -> SettingsPage(perms, soundTitle, actions, onExport = { showExport = true }, onPaste = { showPaste = true },
+                    onLog = { tab = TAB_LOG })
             }
         }
 
         if (!keyboardOpen) {
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding()) {
-                if (tab == 0) {
-                    AddButton(Modifier.align(Alignment.End).padding(end = 20.dp, bottom = 16.dp)) { showTemplates = true }
+                // «+» в середине панели: на вкладке «Списки» сразу новый список, иначе выбор, что создать
+                BottomBar(if (tab == TAB_LOG) TAB_SETTINGS else tab, onTab = { tab = it }) {
+                    if (tab == TAB_LISTS) newList() else showTemplates = true
                 }
-                BottomBar(tab) { tab = it }
             }
         }
         SnackbarHost(
             snackbar,
-            Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = if (editing != null) 16.dp else 96.dp),
+            Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
+                .padding(bottom = if (editing != null || editingList != null) 16.dp else 100.dp),
         )
 
         AnimatedVisibility(
@@ -229,63 +271,82 @@ fun MainScreen(
                 )
             }
         }
+
+        AnimatedVisibility(
+            visible = editedList != null,
+            enter = slideInVertically { it / 6 } + fadeIn(),
+            exit = slideOutVertically { it / 6 } + fadeOut(),
+        ) {
+            val shown = remember { mutableStateOf<TaskList?>(null) }
+            if (editedList != null) shown.value = editedList
+            shown.value?.let { l ->
+                ListEditor(
+                    l = l,
+                    onChange = { change -> vm.updateList(l.key, change) },
+                    onShare = { ListCodec.toText(l).takeIf { it.isNotBlank() }?.let(actions.shareText) },
+                    onDelete = { onListDeleted(l) },
+                    onClose = { vm.closeList(l.key); editingList = null },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Нижняя панель: Сегодня, Календарь, «+» посередине, Списки, Настройки.
+ * Подписи мелко под значками, открытая вкладка — с подложкой.
+ */
+@Composable
+internal fun BottomBar(tab: Int, onTab: (Int) -> Unit, onAdd: () -> Unit) {
+    val p = LocalPalette.current
+    Row(
+        Modifier
+            .padding(start = 16.dp, end = 16.dp, bottom = 14.dp)
+            .fillMaxWidth()
+            .height(70.dp)
+            .shadow(8.dp, RoundedCornerShape(24.dp), ambientColor = Color(0x22000000), spotColor = Color(0x22000000))
+            .clip(RoundedCornerShape(24.dp))
+            .background(p.card)
+            .padding(horizontal = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TabItem("Сегодня", Icons.Filled.Home, tab == 0, Modifier.weight(1f)) { onTab(0) }
+        TabItem("Календарь", Icons.Filled.DateRange, tab == 1, Modifier.weight(1f)) { onTab(1) }
+        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            Box(
+                Modifier
+                    .size(52.dp)
+                    .shadow(10.dp, RoundedCornerShape(18.dp), ambientColor = p.primary, spotColor = p.primary)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(p.primary)
+                    .clickable(onClickLabel = "Создать", role = Role.Button, onClick = onAdd)
+                    .semantics { contentDescription = "Создать напоминание или список" },
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Filled.Add, contentDescription = null, tint = p.onPrimary, modifier = Modifier.size(28.dp)) }
+        }
+        TabItem("Списки", Icons.Filled.CheckCircle, tab == TAB_LISTS, Modifier.weight(1f)) { onTab(TAB_LISTS) }
+        TabItem("Настройки", Icons.Filled.Settings, tab == TAB_SETTINGS, Modifier.weight(1f)) { onTab(TAB_SETTINGS) }
     }
 }
 
 @Composable
-private fun AddButton(modifier: Modifier, onClick: () -> Unit) {
+private fun TabItem(label: String, icon: ImageVector, on: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val p = LocalPalette.current
-    Box(
+    Column(
         modifier
-            .size(60.dp)
-            .shadow(12.dp, RoundedCornerShape(20.dp), ambientColor = p.primary, spotColor = p.primary)
-            .clip(RoundedCornerShape(20.dp))
-            .background(p.primary)
-            .clickable(onClickLabel = "Новое напоминание", role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = "Новое напоминание" },
-        contentAlignment = Alignment.Center,
-    ) { Icon(Icons.Filled.Add, contentDescription = null, tint = p.onPrimary, modifier = Modifier.size(28.dp)) }
-}
-
-@Composable
-private fun BottomBar(tab: Int, onTab: (Int) -> Unit) {
-    val p = LocalPalette.current
-    Row(
-        Modifier
-            .padding(start = 20.dp, end = 20.dp, bottom = 16.dp)
-            .fillMaxWidth()
-            .height(64.dp)
-            .shadow(6.dp, RoundedCornerShape(22.dp), ambientColor = Color(0x22000000), spotColor = Color(0x22000000))
-            .clip(RoundedCornerShape(22.dp))
-            .background(p.card)
-            .padding(horizontal = 8.dp),
-        horizontalArrangement = Arrangement.SpaceAround,
-        verticalAlignment = Alignment.CenterVertically,
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(role = Role.Tab, onClick = onClick)
+            .semantics { selected = on }
+            .padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        val items = listOf<Triple<String, ImageVector, Int>>(
-            Triple("Сегодня", Icons.Filled.Home, 0),
-            Triple("Календарь", Icons.Filled.DateRange, 1),
-            Triple("Журнал", Icons.AutoMirrored.Filled.List, 2),
-            Triple("Настройки", Icons.Filled.Settings, 3),
-        )
-        for ((label, icon, i) in items) {
-            val on = tab == i
-            // вкладок четыре: подпись только у открытой, у остальных значок
-            Row(
-                Modifier
-                    .heightIn(min = 48.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(if (on) p.tint else Color.Transparent)
-                    .clickable(role = Role.Tab, onClickLabel = label) { onTab(i) }
-                    .semantics { contentDescription = label; selected = on }
-                    .padding(horizontal = if (on) 16.dp else 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Icon(icon, contentDescription = null, tint = if (on) p.tintText else p.muted, modifier = Modifier.size(20.dp))
-                if (on) Text(label, color = p.tintText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-            }
-        }
+        Box(
+            Modifier.size(width = 44.dp, height = 28.dp).clip(RoundedCornerShape(14.dp)).background(if (on) p.tint else Color.Transparent),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, contentDescription = null, tint = if (on) p.tintText else p.muted, modifier = Modifier.size(20.dp)) }
+        Text(label, color = if (on) p.tintText else p.muted, fontSize = 10.sp, maxLines = 1,
+            fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium)
     }
 }
 
@@ -711,16 +772,19 @@ private fun WeekCircles(r: Rule, now: Long, acc: Color, ink: Color, muted: Color
 // =====================================================================
 
 @Composable
-private fun TemplateSheet(onDismiss: () -> Unit, onPick: (Rule) -> Unit) {
+private fun TemplateSheet(onDismiss: () -> Unit, onList: () -> Unit, onPick: (Rule) -> Unit) {
     val p = LocalPalette.current
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = p.bg,
     ) {
-        Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Новое напоминание", color = p.ink, fontFamily = Unbounded, fontWeight = FontWeight.Medium, fontSize = 18.sp,
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Создать", color = p.ink, fontFamily = Unbounded, fontWeight = FontWeight.Medium, fontSize = 18.sp,
                 modifier = Modifier.padding(bottom = 4.dp))
+            TemplateRow("Список дел", "чек-лист без времени: покупки, задачи", p.primary, false, Icons.Filled.Check, onList)
+            Text("Напоминание", color = p.muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp))
             for ((i, t) in Templates.all.withIndex()) {
                 val sample = t.make()
                 TemplateRow(t.title, t.hint, if (sample.isAlarm) Amber else accent(i + 1, p.dark), sample.isAlarm) { onPick(t.make()) }
@@ -731,7 +795,7 @@ private fun TemplateSheet(onDismiss: () -> Unit, onPick: (Rule) -> Unit) {
 }
 
 @Composable
-private fun TemplateRow(title: String, hint: String, color: Color, alarm: Boolean, onClick: () -> Unit) {
+private fun TemplateRow(title: String, hint: String, color: Color, alarm: Boolean, icon: ImageVector? = null, onClick: () -> Unit) {
     val p = LocalPalette.current
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(p.card).clickable(onClick = onClick).padding(14.dp),
@@ -739,7 +803,7 @@ private fun TemplateRow(title: String, hint: String, color: Color, alarm: Boolea
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(color.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
-            Icon(if (alarm) AlarmIcon else Icons.Filled.Notifications, contentDescription = null, tint = color, modifier = Modifier.size(22.dp))
+            Icon(icon ?: if (alarm) AlarmIcon else Icons.Filled.Notifications, contentDescription = null, tint = color, modifier = Modifier.size(22.dp))
         }
         Column(Modifier.weight(1f)) {
             Text(title, color = p.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)

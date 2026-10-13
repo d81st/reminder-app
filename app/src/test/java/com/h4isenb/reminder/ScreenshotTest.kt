@@ -101,6 +101,21 @@ class ScreenshotTest {
     @Test fun editorDatedLight() = shot("9_editor_dated_light", false) { Editor(4) }
     @Config(qualifiers = "w390dp-h1900dp-hdpi")
     @Test fun editorCycleDark() = shot("10_editor_cycle_dark", true) { Editor(5) }
+    private val lists = listOf(
+        TaskList("Покупки", listOf(TaskItem("Хлеб"), TaskItem("Молоко", true), TaskItem("Яблоки"), TaskItem("Сыр")), color = 1, id = 1),
+        TaskList("На работу", listOf(TaskItem("Отчёт за квартал"), TaskItem("Позвонить Ивану"), TaskItem("Заказать картридж", true)), color = 0, id = 2),
+        TaskList("Поездка", listOf(TaskItem("Паспорт", true), TaskItem("Зарядка", true)), color = 4, id = 3),
+        TaskList("", listOf(TaskItem("Купить подарок")), color = 2, id = 4),
+    )
+
+    @Test fun homeWithBarLight() = shot("14_home_bar_light", false) {
+        Box(Modifier.fillMaxSize()) {
+            Home()
+            Box(Modifier.align(androidx.compose.ui.Alignment.BottomCenter)) { BottomBar(0, onTab = {}, onAdd = {}) }
+        }
+    }
+    @Test fun listsLight() = shot("15_lists_light", false) { ListsPage(lists) {} }
+    @Test fun listEditorDark() = shot("16_list_editor_dark", true) { ListEditor(lists[0], onChange = {}, onShare = {}, onDelete = {}, onClose = {}) }
     @Test fun calendarLight() = shot("11_calendar_light", false) { CalendarPage(rules, now, onOpen = {}, onAddOn = {}) }
     @Test fun calendarDark() = shot("12_calendar_dark", true) { CalendarPage(rules, now, onOpen = {}, onAddOn = {}) }
     @Config(qualifiers = "w390dp-h1400dp-hdpi")

@@ -109,6 +109,61 @@ object Store {
      * Приводит таблицу в соответствие со списком: обновляет, добавляет новые, удаляет пропавшие.
      * Возвращает тот же список, где у новых напоминаний проставлены id (ключи карточек не меняются).
      */
+    // ---------- списки дел ----------
+
+    @Synchronized
+    fun loadLists(c: Context): List<TaskList> {
+        val out = ArrayList<TaskList>()
+        try {
+            db(c).query("lists", null, null, null, null, null, "position, id").use { cur ->
+                while (cur.moveToNext()) {
+                    out.add(
+                        TaskList(
+                            title = cur.str("title"),
+                            items = ListCodec.itemsFromJson(cur.str("items")),
+                            color = cur.int("color").coerceIn(0, Accents.size - 1),
+                            id = cur.getLong(cur.getColumnIndexOrThrow("id")),
+                            updated = cur.getLong(cur.getColumnIndexOrThrow("updated")),
+                        )
+                    )
+                }
+            }
+        } catch (ignored: Exception) {
+        }
+        return out
+    }
+
+    /** Как save для напоминаний: обновляет, добавляет и удаляет; возвращает списки с выданными id. */
+    @Synchronized
+    fun saveLists(c: Context, lists: List<TaskList>): List<TaskList> {
+        val db = db(c)
+        val out = ArrayList<TaskList>()
+        db.beginTransaction()
+        try {
+            for ((i, l) in lists.withIndex()) {
+                val v = ContentValues().apply {
+                    put("title", l.title.take(ListCodec.MAX_TITLE))
+                    put("items", ListCodec.itemsToJson(l.items.take(ListCodec.MAX_ITEMS)))
+                    put("color", l.color)
+                    put("position", i)
+                    put("updated", l.updated)
+                }
+                val updated = l.id > 0 && db.update("lists", v, "id=?", arrayOf(l.id.toString())) > 0
+                out.add(if (updated) l else l.copy(id = db.insert("lists", null, v)))
+            }
+            val keep = out.map { it.id }.toSet()
+            val remove = ArrayList<Long>()
+            db.rawQuery("SELECT id FROM lists", null).use { cur ->
+                while (cur.moveToNext()) cur.getLong(0).let { if (it !in keep) remove.add(it) }
+            }
+            for (id in remove) db.delete("lists", "id=?", arrayOf(id.toString()))
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        return out
+    }
+
     @Synchronized
     fun save(c: Context, rules: List<Rule>): List<Rule> {
         seedIfNeeded(c)

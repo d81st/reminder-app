@@ -2,6 +2,7 @@
 
 package com.h4isenb.reminder
 
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import android.app.TimePickerDialog
 import android.os.Build
 import androidx.activity.compose.BackHandler
@@ -120,7 +121,7 @@ private val ru = Locale("ru")
 // =====================================================================
 
 @Composable
-internal fun LogPage(vm: MainViewModel) {
+internal fun LogPage(vm: MainViewModel, onBack: () -> Unit) {
     val p = LocalPalette.current
     val f = remember { SimpleDateFormat("d MMM, HH:mm", ru) }
     LazyColumn(
@@ -130,6 +131,10 @@ internal fun LogPage(vm: MainViewModel) {
     ) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.IconButton(onClick = onBack, modifier = Modifier.padding(end = 4.dp)) {
+                    androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Назад", tint = p.ink)
+                }
                 PageTitle("Журнал", Modifier.weight(1f))
                 TonalButton("Очистить") { vm.clearLog() }
             }

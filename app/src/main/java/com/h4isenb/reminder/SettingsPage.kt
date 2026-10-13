@@ -26,6 +26,7 @@ import androidx.compose.material.icons.outlined.BatteryChargingFull
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.DarkMode
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Notifications
@@ -50,7 +51,9 @@ import androidx.compose.ui.unit.sp
 
 /** Настройки: группы строк со значком, подписью, значением справа и стрелкой, как в системных настройках. */
 @Composable
-internal fun SettingsPage(perms: PermState, soundTitle: String, actions: MainActions, onExport: () -> Unit, onPaste: () -> Unit) {
+internal fun SettingsPage(
+    perms: PermState, soundTitle: String, actions: MainActions, onExport: () -> Unit, onPaste: () -> Unit, onLog: () -> Unit = {},
+) {
     val p = LocalPalette.current
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 120.dp)
@@ -90,6 +93,10 @@ internal fun SettingsPage(perms: PermState, soundTitle: String, actions: MainAct
                 PermissionRow(Icons.Outlined.ScreenLockPortrait, "Будильник на весь экран", "поверх экрана блокировки",
                     perms.fullScreen, actions.askFullScreen)
             }
+        }
+
+        SettingsGroup("Журнал") {
+            SettingsRow(Icons.Outlined.History, "Журнал уведомлений", subtitle = "что и когда приходило", onClick = onLog)
         }
 
         SettingsGroup("Проверка", "Если на телефоне есть «Автозапуск» (Xiaomi, Huawei, Oppo и др.), включите его для этого приложения.") {
