@@ -241,6 +241,15 @@ object Store {
         }
     }
 
+    /** Снять «Сделано» (передумали в ленте дня). */
+    @Synchronized
+    fun unmarkDone(c: Context, ruleId: Long, baseAt: Long) {
+        try {
+            db(c).delete("done", "ev_key = ?", arrayOf("$ruleId:$baseAt"))
+        } catch (ignored: Exception) {
+        }
+    }
+
     /** Серии с ответом «Готово»: ключ серии -> момент ответа. */
     @Synchronized
     fun doneMap(c: Context): Map<String, Long> {

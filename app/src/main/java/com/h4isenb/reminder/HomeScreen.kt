@@ -103,6 +103,9 @@ import java.util.Locale
 
 private val ru = Locale("ru")
 
+const val MODE_SCHEDULE = 0
+const val MODE_RULES = 1
+
 private const val TAB_LISTS = 2
 private const val TAB_SETTINGS = 3
 /** Журнал открывается из настроек, своей кнопки внизу у него нет. */
@@ -224,6 +227,8 @@ fun MainScreen(
                     pausedUntil = vm.pausedUntil,
                     onPause = vm::setPause,
                     onMove = vm::move,
+                    done = vm.done,
+                    onToggleDone = vm::toggleDone,
                 )
                 1 -> CalendarPage(vm.rules, vm.now, onOpen = { editing = it.key }) { ymd ->
                     val r = vm.add(Templates.onDate(ymd, vm.now))
@@ -372,9 +377,19 @@ fun HomePage(
     pausedUntil: Long = 0L,
     onPause: (Long) -> Unit = {},
     onMove: (Long, Long) -> Unit = { _, _ -> },
+    done: Map<String, Long> = emptyMap(),
+    onToggleDone: (Rule, Long) -> Unit = { _, _ -> },
+    initialMode: Int = MODE_SCHEDULE,
+    initialDay: Int = 0,
 ) {
     val p = LocalPalette.current
     val haptics = LocalHapticFeedback.current
+    // «Расписание» — лента дня, «Напоминания» — карточки для настройки
+    var mode by rememberSaveable { mutableIntStateOf(initialMode) }
+    var dayPicked by rememberSaveable { mutableIntStateOf(initialDay) }
+    val todayYmd = Rule.ymd(now)
+    // 0 — «сегодня», какой бы день ни наступил
+    val day = if (dayPicked == 0) todayYmd else dayPicked
     // карточки переставляются долгим нажатием; у прочих строк списка ключи-строки, их не трогаем
     val reorder = rememberReorderableLazyListState(listState) { from, to ->
         val f = from.key as? Long
@@ -408,12 +423,26 @@ fun HomePage(
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(p.card).padding(14.dp))
             }
         }
-        item(key = "title") {
-            Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 2.dp), verticalAlignment = Alignment.Bottom) {
-                Text("Напоминания", color = p.ink, fontFamily = Unbounded, fontWeight = FontWeight.Medium, fontSize = 17.sp,
-                    modifier = Modifier.weight(1f))
-                if (rules.isNotEmpty()) Text(rules.size.toString(), color = p.muted, fontSize = 13.sp)
+        item(key = "mode") {
+            Box(Modifier.padding(top = 6.dp)) {
+                Segmented(listOf("Расписание", "Напоминания · ${rules.size}"), mode) { mode = it }
             }
+        }
+        if (mode == MODE_SCHEDULE) {
+            item(key = "strip") { WeekStrip(rules, now, day) { dayPicked = if (it == todayYmd) 0 else it } }
+            item(key = "dayTitle") {
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.Bottom) {
+                    Text(if (day == todayYmd) "Сегодня" else Phrases.date(day, todayYmd).replaceFirstChar { it.uppercase() },
+                        color = p.ink, fontFamily = Unbounded, fontWeight = FontWeight.Medium, fontSize = 17.sp, modifier = Modifier.weight(1f))
+                    if (day != todayYmd) {
+                        Text("К сегодня", color = p.primary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(role = Role.Button) { dayPicked = 0 }
+                                .padding(horizontal = 8.dp, vertical = 4.dp))
+                    }
+                }
+            }
+            dayTimeline(rules, day, now, done, pausedUntil, onOpen, onToggleDone)
+            return@LazyColumn
         }
         if (rules.isEmpty()) {
             item(key = "empty") {

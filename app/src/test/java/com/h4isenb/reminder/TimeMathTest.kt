@@ -342,4 +342,25 @@ class TimeMathTest {
         // сб 17 октября: ничего
         assertTrue(TimeMath.onDate(rules, 20261017).isEmpty())
     }
+
+    @Test
+    fun dayEntriesSortedWithBase() {
+        val rules = listOf(
+            Rule("Обед", 13 * 60, 13 * 60, 60, false, id = 1),
+            Rule("Утро", 9 * 60, 10 * 60, 60, false, id = 2, lead = 5),
+        )
+        val e = TimeMath.dayEntries(rules, 20261012, tz)
+        assertEquals(listOf(9 * 60, 10 * 60, 13 * 60), e.map { it.minute })
+        // «за 5 минут»: момент основного уведомления 08:55
+        assertEquals(at(2026, 10, 12, 8, 55), e[0].baseAt)
+        assertEquals("2:" + at(2026, 10, 12, 8, 55), e[0].doneKey())
+    }
+
+    @Test
+    fun doneInAdvanceSkipsQuietReminder() {
+        val r = Rule("Обед", 13 * 60, 13 * 60, 60, false, id = 1)
+        val base = at(2026, 10, 12, 13, 0)
+        val done = mapOf("1:$base" to at(2026, 10, 12, 10, 0))
+        assertTrue(TimeMath.events(listOf(r), at(2026, 10, 12, 11, 0), at(2026, 10, 12, 14, 0), tz, done).isEmpty())
+    }
 }

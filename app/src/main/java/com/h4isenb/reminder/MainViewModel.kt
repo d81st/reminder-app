@@ -42,6 +42,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var now by mutableLongStateOf(System.currentTimeMillis())
         private set
 
+    /** «Сделано» за последние дни: ключ «id:момент» -> когда отметили. */
+    var done by mutableStateOf<Map<String, Long>>(emptyMap())
+        private set
+
+    /** Отметить время в ленте дня сделанным или снять отметку. Сделанное заранее уже не придёт. */
+    fun toggleDone(r: Rule, baseAt: Long) {
+        if (r.id <= 0) return
+        val key = "${r.id}:$baseAt"
+        val wasDone = key in done
+        done = if (wasDone) done - key else done + (key to System.currentTimeMillis())
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                if (wasDone) Store.unmarkDone(ctx, r.id, baseAt) else Store.markDone(ctx, r.id, baseAt)
+                Scheduler.scheduleNext(ctx)
+            }
+            refreshStatus()
+        }
+    }
+
     /** Списки дел. */
     var lists by mutableStateOf<List<TaskList>>(emptyList())
         private set
@@ -89,6 +108,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             tipHidden = withContext(Dispatchers.IO) { Store.prefs(ctx).getBoolean("tipHomeHidden", false) }
             pausedUntil = withContext(Dispatchers.IO) { Pause.until(ctx) }
             lists = withContext(Dispatchers.IO) { Store.loadLists(ctx) }
+            done = withContext(Dispatchers.IO) { Store.doneMap(ctx) }
             loaded = true
             recomputeNext(0)
             refreshStatus()
@@ -319,6 +339,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val fresh = withContext(Dispatchers.IO) { Store.load(ctx) }
             // паузу могли поставить или снять плиткой в шторке или на виджете
             pausedUntil = withContext(Dispatchers.IO) { Pause.until(ctx) }
+            // «Готово» могли нажать в уведомлении, пока приложение было свёрнуто
+            done = withContext(Dispatchers.IO) { Store.doneMap(ctx) }
             if (!dirty && saveJob?.isActive != true) {
                 // ключи карточек сохраняем, чтобы раскрытые карточки не схлопнулись
                 val keys = rules.filter { it.id > 0 }.associate { it.id to it.key }

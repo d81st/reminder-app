@@ -165,7 +165,8 @@ object TimeMath {
                     c.clear()
                     c.set(day.get(Calendar.YEAR), day.get(Calendar.MONTH), day.get(Calendar.DAY_OF_MONTH), 0, t - r.lead, 0)
                     val base = c.timeInMillis
-                    val doneAt = if (reps > 0 && r.id > 0) done["${r.id}:$base"] else null
+                    // «Сделано» (кнопкой в уведомлении или в ленте дня): всё, что позже отметки, не приходит
+                    val doneAt = if (r.id > 0) done["${r.id}:$base"] else null
                     for (k in 0..reps) {
                         val at = if (before) base - k * step else base + k * step
                         if (at <= fromExcl || at > toIncl) continue
@@ -269,6 +270,27 @@ object TimeMath {
         c.timeInMillis = Rule.midnightOf(ymd, TimeZone.getTimeZone("UTC"))
         val wd = Rule.weekdayOf(c.get(Calendar.DAY_OF_WEEK))
         return rules.indices.filter { rules[it].enabled }.map { it to times(rules, it, wd, ymd) }.filter { it.second.isNotEmpty() }
+    }
+
+    /** Одно время напоминания в ленте дня. baseAt — момент основного уведомления (ключ для «Сделано»). */
+    class DayEntry(val index: Int, val rule: Rule, val minute: Int, val baseAt: Long) {
+        fun doneKey(): String = "${rule.id}:$baseAt"
+    }
+
+    /** Лента дня ГГГГММДД: все времена включённых напоминаний по порядку. */
+    fun dayEntries(rules: List<Rule>, ymd: Int, tz: TimeZone = TimeZone.getDefault()): List<DayEntry> {
+        val out = ArrayList<DayEntry>()
+        for ((i, times) in onDate(rules, ymd)) {
+            val r = rules[i]
+            for (t in times) {
+                val c = Calendar.getInstance(tz)
+                c.clear()
+                c.set(ymd / 10000, ymd / 100 % 100 - 1, ymd % 100, 0, t - r.lead, 0)
+                out.add(DayEntry(i, r, t, c.timeInMillis))
+            }
+        }
+        out.sortWith(compareBy<DayEntry>({ it.minute }, { it.index }))
+        return out
     }
 
     /** Ближайшая полночь после now: «пауза до конца дня». */
