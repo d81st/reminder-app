@@ -150,14 +150,5 @@ data class Rule(
             c.set(y, m - 1, 1)
             return d <= c.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
         }
-
-        /** «Каждый день», «Будни», «Выходные» или список дней: «Пн, Ср, Пт». */
-        fun daysText(days: Int): String = when (days and ALL_DAYS) {
-            ALL_DAYS -> "каждый день"
-            WORKDAYS -> "будни"
-            WEEKEND -> "выходные"
-            0 -> "ни одного дня"
-            else -> (0..6).filter { days and (1 shl it) != 0 }.joinToString(", ") { DAY_SHORT[it] }
-        }
     }
 }

@@ -173,14 +173,6 @@ class TimeMathTest {
     }
 
     @Test
-    fun daysText() {
-        assertEquals("каждый день", Rule.daysText(Rule.ALL_DAYS))
-        assertEquals("будни", Rule.daysText(Rule.WORKDAYS))
-        assertEquals("выходные", Rule.daysText(Rule.WEEKEND))
-        assertEquals("Пн, Ср, Пт", Rule.daysText(0b10101))
-    }
-
-    @Test
     fun notificationIdsDoNotCollideAcrossRules() {
         val base = at(mon[0], mon[1], mon[2], 10, 0)
         // раньше у напоминаний 1 и 101 номера совпадали

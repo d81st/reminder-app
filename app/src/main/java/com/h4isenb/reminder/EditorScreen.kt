@@ -77,7 +77,6 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import java.util.Calendar
 
-private const val MAX_CHIPS = 24
 
 /**
  * Редактор напоминания на весь экран. Сверху коротко «Когда» и «Дни» (раскрываются по нажатию),
@@ -98,7 +97,6 @@ fun RuleEditor(
     val mode = Phrases.mode(r)
     val acc = if (r.isAlarm) (if (p.dark) Amber else Color(0xFFB45309)) else accent(r.color, p.dark)
     val idx = allRules.indexOfFirst { it.key == r.key }
-    var more by rememberSaveable(r.key) { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().background(p.bg).statusBarsPadding().navigationBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -152,16 +150,7 @@ fun RuleEditor(
 
             Preview(r, idx, allRules, now, acc)
 
-            Row(
-                Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(RoundedCornerShape(18.dp))
-                    .clickable(role = Role.Button) { more = !more }.padding(horizontal = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("Дополнительно", color = p.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                Text("цвет, точные значения", color = p.muted, fontSize = 13.sp, maxLines = 1, modifier = Modifier.padding(end = 6.dp))
-                Icon(if (more) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = p.muted)
-            }
-            AnimatedVisibility(more) { MoreBlock(r, idx, allRules, now, acc, onChange) }
+            MoreBlock(r, onChange)
             Spacer(Modifier.height(4.dp))
         }
 
@@ -397,15 +386,14 @@ private fun PersistentBlock(r: Rule, acc: Color, onChange: ((Rule) -> Rule) -> U
         }
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("с промежутком", color = p.muted, fontSize = 13.sp)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                val options = listOf(1, 2, 5, 10)
-                for (m in options) Pill("$m мин", r.repeatEvery == m, acc) { onChange { it.copy(repeatEvery = m) } }
-                if (r.repeatEvery !in options) Pill("${r.repeatEvery} мин", true, acc) {}
-            }
+            PresetPills(r.key, listOf(1, 2, 5, 10), r.repeatEvery, 1..120, "Промежуток, минут", acc,
+                label = { "$it мин" }) { v -> onChange { it.copy(repeatEvery = v) } }
         }
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("серия", color = p.muted, fontSize = 13.sp)
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(p.bg).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            // обе половины одной ширины и высоты, подложка выбранной закрывает её целиком
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).clip(RoundedCornerShape(14.dp)).background(p.bg).padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 DirOption("до времени", "последнее — в само время", r.repeatMode == Rule.REPEAT_BEFORE, Modifier.weight(1f)) {
                     onChange { it.copy(repeatMode = Rule.REPEAT_BEFORE) }
                 }
@@ -439,11 +427,13 @@ private fun StepButton(label: String, description: String, acc: Color, onClick: 
 private fun DirOption(title: String, hint: String, on: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val p = LocalPalette.current
     Column(
-        modifier.clip(RoundedCornerShape(11.dp)).background(if (on) p.card else Color.Transparent)
+        modifier.fillMaxHeight().clip(RoundedCornerShape(11.dp)).background(if (on) p.card else Color.Transparent)
             .semantics { selected = on }.clickable(role = Role.RadioButton, onClick = onClick).padding(vertical = 8.dp, horizontal = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
-        Text(title, color = if (on) p.ink else p.muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(title, color = if (on) p.ink else p.muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         Text(hint, color = p.muted, fontSize = 11.sp, lineHeight = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
 }
@@ -462,9 +452,8 @@ private fun AlarmBlock(r: Rule, acc: Color, actions: MainActions, onChange: ((Ru
         }
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("«Отложить» на", color = p.muted, fontSize = 13.sp)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                for (m in listOf(5, 10, 15, 30)) Pill("$m мин", r.snoozeMin == m, acc) { onChange { it.copy(snoozeMin = m) } }
-            }
+            PresetPills(r.key, listOf(5, 10, 15, 30), r.snoozeMin, 1..60, "Отложить на, минут", acc,
+                label = { "$it мин" }) { v -> onChange { it.copy(snoozeMin = v) } }
         }
         SwitchRow("Нарастающая громкость", "Начинает тихо и за полминуты доходит до полной", r.gradual) { v -> onChange { it.copy(gradual = v) } }
         SwitchRow("Выключать решением примера", "«Выключить» сработает только после ответа", r.challenge == Rule.CHALLENGE_MATH) { v ->
@@ -478,11 +467,8 @@ private fun LeadBlock(r: Rule, acc: Color, onChange: ((Rule) -> Rule) -> Unit) {
     val p = LocalPalette.current
     Block {
         Text(if (r.isAlarm) "Зазвонит" else "Первое уведомление", color = p.muted, fontSize = 13.sp)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            val options = listOf(0, 5, 10, 15)
-            for (m in options) Pill(if (m == 0) "вовремя" else "за $m мин", r.lead == m, acc) { onChange { it.copy(lead = m) } }
-            if (r.lead !in options) Pill("за ${r.lead} мин", true, acc) {}
-        }
+        PresetPills(r.key, listOf(0, 5, 10, 15), r.lead, 0..180, if (r.isAlarm) "Раньше на, минут" else "Заранее, минут", acc,
+            label = { if (it == 0) "вовремя" else "за $it мин" }) { v -> onChange { it.copy(lead = v) } }
     }
 }
 
@@ -618,32 +604,16 @@ private fun Preview(r: Rule, idx: Int, allRules: List<Rule>, now: Long, acc: Col
 // «Дополнительно»
 // =====================================================================
 
+/** Цвет карточки и «пропускать чужие времена» — то, чего нет в блоках выше. */
 @Composable
-private fun MoreBlock(r: Rule, idx: Int, allRules: List<Rule>, now: Long, acc: Color, onChange: ((Rule) -> Rule) -> Unit) {
+private fun MoreBlock(r: Rule, onChange: ((Rule) -> Rule) -> Unit) {
     val p = LocalPalette.current
     Block {
+        Text("Дополнительно", color = p.muted, fontSize = 13.sp)
         if (!r.isAlarm) {
             Column {
                 Label("Цвет")
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    for (i in Accents.indices) {
-                        val c = accent(i, p.dark)
-                        Box(
-                            Modifier.size(32.dp).clip(CircleShape).background(c)
-                                .then(if (i == r.color) Modifier.border(3.dp, p.ink, CircleShape) else Modifier)
-                                .semantics { selected = i == r.color }
-                                .clickable(role = Role.RadioButton) { onChange { it.copy(color = i) } }
-                        )
-                    }
-                }
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            NumberField(if (r.isAlarm) "Раньше на, минут" else "Заранее, минут", r.lead, 0..180, Modifier.weight(1f)) { v ->
-                onChange { it.copy(lead = v) }
-            }
-            if (Phrases.mode(r) == Phrases.MODE_PERSISTENT) {
-                NumberField("Промежуток, минут", r.repeatEvery, 1..120, Modifier.weight(1f)) { v -> onChange { it.copy(repeatEvery = v) } }
+                ColorPicker(r.color) { i -> onChange { it.copy(color = i) } }
             }
         }
         Row(
@@ -653,29 +623,23 @@ private fun MoreBlock(r: Rule, idx: Int, allRules: List<Rule>, now: Long, acc: C
             Checkbox(checked = r.skipOverlap, onCheckedChange = { v -> onChange { it.copy(skipOverlap = v) } })
             Text("Пропускать время, когда срабатывает другое напоминание", color = p.ink, fontSize = 13.sp)
         }
-        if (idx >= 0) TimesChips(r, idx, allRules, now, acc)
     }
 }
 
-/** Все времена сегодня: прошедшие бледнее. */
+/**
+ * Готовые значения кнопками и «своё…» для точного числа: поле ввода появляется под кнопками.
+ * Одна и та же штука для «Первое уведомление», промежутка повторов и «Отложить на».
+ */
 @Composable
-private fun TimesChips(r: Rule, idx: Int, rules: List<Rule>, now: Long, acc: Color) {
-    val p = LocalPalette.current
-    val cal = Calendar.getInstance().apply { timeInMillis = now }
-    val today = Rule.weekdayOf(cal.get(Calendar.DAY_OF_WEEK))
-    val nowMin = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
-    val ymd = Rule.ymd(cal)
-    val onToday = r.activeOn(today, ymd)
-    val t = TimeMath.times(rules, idx, if (onToday) today else null, ymd)
-    Column {
-        Label(if (onToday) "Все времена сегодня" else if (r.isDated) "Все времена в этот день" else "Все времена (сегодня не работает)")
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            val fg = if (p.dark) lerp(acc, Color.White, 0.3f) else lerp(acc, Color.Black, 0.35f)
-            for (m in t.take(MAX_CHIPS)) {
-                val past = !onToday || m - r.lead <= nowMin
-                Chip(TimeMath.fmt(m), acc.copy(alpha = 0.16f), fg, Modifier.alpha(if (past) 0.45f else 1f))
-            }
-            if (t.size > MAX_CHIPS) Chip("ещё ${t.size - MAX_CHIPS}", p.tint, p.muted)
-        }
+private fun PresetPills(
+    key: Long, options: List<Int>, value: Int, range: IntRange, fieldLabel: String, acc: Color,
+    label: (Int) -> String, onPick: (Int) -> Unit,
+) {
+    var custom by rememberSaveable(key, fieldLabel) { mutableStateOf(value !in options) }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (m in options) Pill(label(m), !custom && value == m, acc) { custom = false; onPick(m) }
+        Pill(if (custom) label(value) else "своё…", custom, acc) { custom = true }
     }
+    if (custom) NumberField(fieldLabel, value, range, Modifier.fillMaxWidth()) { v -> onPick(v) }
 }
+

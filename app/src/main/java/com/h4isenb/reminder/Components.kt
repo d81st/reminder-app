@@ -117,6 +117,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.material3.SwitchDefaults
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -346,7 +347,7 @@ internal fun AccentSwitch(checked: Boolean, color: Color, onChange: (Boolean) ->
 /** Семь точек дней недели: закрашены дни, в которые напоминание работает. */
 @Composable
 internal fun DayDots(days: Int, on: Color, off: Color) {
-    Row(horizontalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.semantics { contentDescription = Rule.daysText(days) }) {
+    Row(horizontalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.semantics { contentDescription = Phrases.days(days) }) {
         for (d in 0..6) Box(Modifier.size(6.dp).clip(CircleShape).background(if (days and (1 shl d) != 0) on else off))
     }
 }
@@ -406,6 +407,24 @@ internal fun TimePickDialog(minutes: Int, onDismiss: () -> Unit, onPick: (Int) -
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
         text = { TimePicker(st) },
     )
+}
+
+/** Выбор цвета карточки: напоминания и списка дел. Выбранный — с кольцом. */
+@Composable
+internal fun ColorPicker(current: Int, onPick: (Int) -> Unit) {
+    val p = LocalPalette.current
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        for (i in Accents.indices) {
+            val c = accent(i, p.dark)
+            Box(
+                Modifier.size(32.dp).clip(CircleShape)
+                    .then(if (i == current) Modifier.border(2.dp, c, CircleShape).padding(5.dp) else Modifier)
+                    .clip(CircleShape).background(c)
+                    .semantics { selected = i == current; contentDescription = "Цвет ${i + 1}" }
+                    .clickable(role = Role.RadioButton) { onPick(i) },
+            )
+        }
+    }
 }
 
 /** Выбор даты (ГГГГММДД); дни раньше minYmd выбрать нельзя. */

@@ -197,16 +197,7 @@ fun ListEditor(
                 )
             }
             item(key = "colors") {
-                Row(Modifier.padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    for (i in Accents.indices) {
-                        val c = accent(i, p.dark)
-                        Box(
-                            Modifier.size(26.dp).clip(CircleShape).background(c)
-                                .then(if (i == l.color) Modifier.border(3.dp, p.bg, CircleShape).border(5.dp, c, CircleShape) else Modifier)
-                                .clickable(role = Role.RadioButton, onClickLabel = "Цвет") { onChange { it.copy(color = i) } },
-                        )
-                    }
-                }
+                Box(Modifier.padding(bottom = 10.dp)) { ColorPicker(l.color) { i -> onChange { it.copy(color = i) } } }
             }
             items(open, key = { it.key }) { item ->
                 ItemRow(item, acc, requester(item.key),

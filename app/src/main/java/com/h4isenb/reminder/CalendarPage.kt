@@ -56,14 +56,16 @@ private class CalDay(val ymd: Int, val inMonth: Boolean, val items: List<Pair<In
  * Календарь: месяц с отметками, в какие дни что придёт, и список дня. Отсюда же можно добавить напоминание на день.
  */
 @Composable
-fun CalendarPage(rules: List<Rule>, now: Long, onOpen: (Rule) -> Unit, onAddOn: (Int) -> Unit) {
+fun CalendarPage(
+    rules: List<Rule>, now: Long, onOpen: (Rule) -> Unit, onAddOn: (Int) -> Unit,
+    done: Map<String, Long> = emptyMap(), pausedUntil: Long = 0L, onToggleDone: (Rule, Long) -> Unit = { _, _ -> },
+) {
     val p = LocalPalette.current
     val today = Rule.ymd(now)
     // месяц как число «год*12 + месяц», выбранный день — ГГГГММДД
     var month by rememberSaveable { mutableIntStateOf(today / 10000 * 12 + today / 100 % 100 - 1) }
     var selected by rememberSaveable { mutableIntStateOf(today) }
     val weeks = remember(rules, month) { monthGrid(rules, month) }
-    val dayItems = remember(rules, selected) { TimeMath.onDate(rules, selected).sortedBy { it.second.first() } }
 
     LazyColumn(
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 120.dp),
@@ -111,15 +113,8 @@ fun CalendarPage(rules: List<Rule>, now: Long, onOpen: (Rule) -> Unit, onAddOn: 
                 if (selected >= today) TonalButton("+ На этот день") { onAddOn(selected) }
             }
         }
-        if (dayItems.isEmpty()) {
-            item(key = "empty") {
-                Text(if (selected < today) "В этот день ничего не было." else "В этот день ничего не придёт.",
-                    color = p.muted, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
-            }
-        }
-        items(dayItems, key = { rules[it.first].key }) { (i, times) ->
-            DayItem(rules[i], times) { onOpen(rules[i]) }
-        }
+        // та же лента дня, что на главном: время, линия, «Сделано»
+        dayTimeline(rules, selected, now, done, pausedUntil, onOpen, onToggleDone, compact = true)
     }
 }
 
@@ -161,31 +156,6 @@ private fun DayCell(d: CalDay, rules: List<Rule>, isToday: Boolean, isSelected: 
                 Box(Modifier.size(5.dp).clip(CircleShape).background(if (isSelected) p.onPrimary else c))
             }
         }
-    }
-}
-
-@Composable
-private fun DayItem(r: Rule, times: List<Int>, onClick: () -> Unit) {
-    val p = LocalPalette.current
-    val acc = if (r.isAlarm) (if (p.dark) Amber else Color(0xFFB45309)) else accent(r.color, p.dark)
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(p.card).clickable(onClickLabel = "Изменить", onClick = onClick)
-            .padding(14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Box(Modifier.width(4.dp).height(36.dp).clip(RoundedCornerShape(2.dp)).background(acc))
-        Column(Modifier.weight(1f)) {
-            Text(r.name, color = p.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val when_ = when {
-                times.size == 1 -> TimeMath.fmt(times[0])
-                times.size <= 4 -> times.joinToString(", ") { TimeMath.fmt(it) }
-                else -> "${times.size} " + TimeMath.plural(times.size, "раз", "раза", "раз") +
-                    ": ${TimeMath.fmt(times.first())} – ${TimeMath.fmt(times.last())}"
-            }
-            Text((if (r.isAlarm) "Будильник · " else "") + when_, color = p.muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        Text(TimeMath.fmt(times.first()), color = acc, fontFamily = Unbounded, fontWeight = FontWeight.Bold, fontSize = 18.sp)
     }
 }
 

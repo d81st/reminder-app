@@ -230,11 +230,12 @@ fun MainScreen(
                     done = vm.done,
                     onToggleDone = vm::toggleDone,
                 )
-                1 -> CalendarPage(vm.rules, vm.now, onOpen = { editing = it.key }) { ymd ->
+                1 -> CalendarPage(vm.rules, vm.now, onOpen = { editing = it.key }, done = vm.done, pausedUntil = vm.pausedUntil,
+                    onToggleDone = vm::toggleDone, onAddOn = { ymd ->
                     val r = vm.add(Templates.onDate(ymd, vm.now))
                     if (r == null) actions.toast("Достигнут предел: ${MainViewModel.MAX_RULES} напоминаний")
                     else editing = r.key
-                }
+                })
                 TAB_LISTS -> ListsPage(vm.lists) { editingList = it.key }
                 TAB_LOG -> LogPage(vm, onBack = { tab = TAB_SETTINGS })
                 else -> SettingsPage(perms, soundTitle, actions, onExport = { showExport = true }, onPaste = { showPaste = true },
