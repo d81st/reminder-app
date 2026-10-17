@@ -621,7 +621,11 @@ private fun MoreBlock(r: Rule, onChange: ((Rule) -> Rule) -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Checkbox(checked = r.skipOverlap, onCheckedChange = { v -> onChange { it.copy(skipOverlap = v) } })
-            Text("Пропускать время, когда срабатывает другое напоминание", color = p.ink, fontSize = 13.sp)
+            Column {
+                Text("Пропускать время, когда срабатывает другое напоминание", color = p.ink, fontSize = 13.sp)
+                if (r.skipOverlap) Text("Если галочка стоит у нескольких, в общее время придёт то, что срабатывает реже.",
+                    color = p.muted, fontSize = 12.sp)
+            }
         }
     }
 }

@@ -110,9 +110,20 @@ object TimeMath {
         val other = HashSet<Int>()
         for (i in rules.indices) {
             val o = rules[i]
-            if (i != idx && o.enabled && !o.skipOverlap && (weekday == null || o.activeOn(weekday, ymd))) other.addAll(o.rawTimes())
+            if (i == idx || !o.enabled || (weekday != null && !o.activeOn(weekday, ymd))) continue
+            // уступаем напоминаниям без галочки, а среди тех, у кого она тоже стоит, — более редким
+            // (меньше времён в день; при равенстве — тому, что выше в списке). Так в совпавшее время
+            // приходит ровно одно напоминание, а не оба и не ни одного.
+            if (!o.skipOverlap || outranks(o, i, r, idx)) other.addAll(o.rawTimes())
         }
         return t.filter { it !in other }
+    }
+
+    /** Кому из двух напоминаний с «пропускать совпадения» достаётся общее время: более редкому, затем верхнему. */
+    private fun outranks(o: Rule, oi: Int, r: Rule, ri: Int): Boolean {
+        val a = o.rawTimes().size
+        val b = r.rawTimes().size
+        return a < b || (a == b && oi < ri)
     }
 
     /**

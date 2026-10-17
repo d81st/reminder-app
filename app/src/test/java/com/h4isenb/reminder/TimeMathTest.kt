@@ -355,4 +355,33 @@ class TimeMathTest {
         val done = mapOf("1:$base" to at(2026, 10, 12, 10, 0))
         assertTrue(TimeMath.events(listOf(r), at(2026, 10, 12, 11, 0), at(2026, 10, 12, 14, 0), tz, done).isEmpty())
     }
+
+    @Test
+    fun twoSkippingRulesShareTimeWithoutDoubleOrSilence() {
+        // «каждые 15 мин» и «каждые 30 мин», у обоих «пропускать совпадения», плюс «каждый час» без галочки
+        val rules = listOf(
+            hourly(1),
+            Rule("15", start = 9 * 60, end = 17 * 60, interval = 15, skipOverlap = true, id = 2),
+            Rule("30", start = 9 * 60 + 30, end = 16 * 60 + 30, interval = 60, skipOverlap = true, id = 3),
+        )
+        val t15 = TimeMath.times(rules, 1)
+        val t30 = TimeMath.times(rules, 2)
+        // 9:30 — только у «30» (он реже), 10:00 — только у «каждый час»
+        assertTrue(9 * 60 + 30 !in t15)
+        assertTrue(9 * 60 + 30 in t30)
+        assertTrue(10 * 60 !in t15)
+        assertTrue(9 * 60 + 15 in t15)
+        // в каждое время дня приходит ровно одно напоминание
+        val all = rules.indices.flatMap { TimeMath.times(rules, it) }
+        assertEquals(all.size, all.toSet().size)
+    }
+
+    @Test
+    fun equalSkippingRulesUpperWins() {
+        val a = Rule("a", start = 9 * 60, end = 10 * 60, interval = 30, skipOverlap = true, id = 1)
+        val b = a.copy(name = "b", id = 2, key = 2)
+        val rules = listOf(a, b)
+        assertEquals(listOf(9 * 60, 9 * 60 + 30, 10 * 60), TimeMath.times(rules, 0))
+        assertTrue(TimeMath.times(rules, 1).isEmpty())
+    }
 }
